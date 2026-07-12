@@ -1,4 +1,4 @@
-export const API_BASE = import.meta.env.VITE_API_BASE || 'https://job-platform-api.azurewebsites.net/api'
+export const API_BASE = import.meta.env.VITE_API_BASE || 'https://design-library-builder-api.azurewebsites.net/api'
 
 let _sessionToken = null
 try { _sessionToken = sessionStorage.getItem('dlg_session_token') } catch {}

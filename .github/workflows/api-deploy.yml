@@ -1,0 +1,102 @@
+name: Deploy API to Azure Functions
+
+on:
+  push:
+    branches: [main, claude/figma-design-library-generator-esrbk9]
+    paths:
+      - 'api/**'
+      - '.github/workflows/api-deploy.yml'
+  workflow_dispatch:
+
+env:
+  FUNCTION_APP_NAME: design-library-builder-api
+  RESOURCE_GROUP: EnterpriseDS_ResourceGRP
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: api/package-lock.json
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: '{"clientId":"${{ secrets.AZURE_CLIENT_ID }}","clientSecret":"${{ secrets.AZURE_CLIENT_SECRET }}","subscriptionId":"${{ secrets.AZURE_SUBSCRIPTION_ID }}","tenantId":"${{ secrets.AZURE_TENANT_ID }}"}'
+
+      # Provision the Function App if it doesn't exist yet
+      - name: Ensure Function App exists
+        run: |
+          EXISTS=$(az functionapp show \
+            --name $FUNCTION_APP_NAME \
+            --resource-group $RESOURCE_GROUP \
+            --query "name" -o tsv 2>/dev/null || echo "")
+          if [ -z "$EXISTS" ]; then
+            echo "Creating storage account and Function App..."
+            # Create storage account for this function app (name must be globally unique, 3-24 chars)
+            STORAGE="dlbapifn$(echo ${{ secrets.AZURE_SUBSCRIPTION_ID }} | tr -d '-' | cut -c1-10)"
+            az storage account create \
+              --name "$STORAGE" \
+              --resource-group $RESOURCE_GROUP \
+              --location eastus \
+              --sku Standard_LRS \
+              --kind StorageV2 2>/dev/null || true
+            az functionapp create \
+              --name $FUNCTION_APP_NAME \
+              --resource-group $RESOURCE_GROUP \
+              --storage-account "$STORAGE" \
+              --consumption-plan-location eastus \
+              --runtime node \
+              --runtime-version 22 \
+              --functions-version 4 \
+              --os-type Linux
+          else
+            echo "Function App already exists: $EXISTS"
+          fi
+
+      - name: Build TypeScript
+        run: |
+          cd api
+          npm ci
+          npm run build
+
+      - name: Sync secrets to Function App settings
+        run: |
+          az functionapp config appsettings set \
+            --name $FUNCTION_APP_NAME \
+            --resource-group $RESOURCE_GROUP \
+            --settings \
+              "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" \
+              "AZURE_STORAGE_CONNECTION_STRING=${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" \
+              "MICROSOFT_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}" \
+              "MICROSOFT_CLIENT_SECRET=${{ secrets.AZURE_CLIENT_SECRET }}" \
+              "MICROSOFT_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}" \
+              "GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}" \
+              "GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}" \
+              "NODE_ENV=production"
+
+      - name: Create deployment zip
+        run: |
+          cd api
+          zip -r ../api-deploy.zip . --exclude '*.ts' --exclude 'src/*'
+
+      - name: Deploy to Azure Functions
+        run: |
+          az functionapp deployment source config-zip \
+            --name $FUNCTION_APP_NAME \
+            --resource-group $RESOURCE_GROUP \
+            --src api-deploy.zip
+
+      - name: Print API URL
+        run: |
+          HOST=$(az functionapp show \
+            --name $FUNCTION_APP_NAME \
+            --resource-group $RESOURCE_GROUP \
+            --query "defaultHostName" -o tsv)
+          echo "✓ API deployed: https://$HOST/api/health"
