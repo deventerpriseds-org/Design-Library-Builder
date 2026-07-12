@@ -58,8 +58,7 @@ jobs:
               --name $SWA_NAME \
               --resource-group $RESOURCE_GROUP \
               --location eastus2 \
-              --sku Free \
-              --login-with-github false
+              --sku Free
           fi
           HOST=$(az staticwebapp show \
             --name $SWA_NAME \
