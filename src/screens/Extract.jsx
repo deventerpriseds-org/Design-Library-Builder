@@ -2,8 +2,12 @@ import React, { useEffect, useRef } from 'react'
 import { useApp, go } from '../state.jsx'
 import { extractDesign } from '../api.js'
 
-const CATEGORIES = ['colors', 'typography', 'spacing', 'tokens', 'components', 'effects', 'grids', 'finalizing']
-const CAT_ICON = { colors: '🎨', typography: '✦', spacing: '⇔', tokens: '◈', components: '▦', effects: '◉', grids: '⊞', finalizing: '⇓' }
+const CATEGORIES = ['primitives', 'color-tokens', 'spacing-tokens', 'motion-tokens', 'typography', 'text-styles', 'effect-styles', 'grid-styles', 'components', 'patterns', 'finalizing']
+const CAT_ICON = {
+  primitives: '🎨', 'color-tokens': '◉', 'spacing-tokens': '⇔', 'motion-tokens': '⏱',
+  typography: '✦', 'text-styles': 'T', 'effect-styles': '✧', 'grid-styles': '⊞',
+  components: '▦', patterns: '⊡', finalizing: '⇓',
+}
 
 export default function Extract() {
   const { state, dispatch } = useApp()
