@@ -14,68 +14,256 @@ const JSON_H = { 'Content-Type': 'application/json', ...CORS }
 const STREAM_H = { 'Content-Type': 'application/x-ndjson', 'Transfer-Encoding': 'chunked', ...CORS }
 
 // ── Extraction prompt ────────────────────────────────────────────────────────
-const SYSTEM_PROMPT = `You are a design system extraction expert. Given screenshots, URLs, and descriptions of an app, you extract a complete Figma design library specification.
+const SYSTEM_PROMPT = `You are an expert design systems architect and Figma specialist. Given screenshots, URLs, and descriptions of an app, you extract and infer a COMPLETE, production-ready Figma design library specification.
+
+CRITICAL INFERENCE MANDATE: For any element in the required schema that cannot be directly observed in the provided inputs, infer the most likely high-quality, production-appropriate value based on the overall design language you observe. If you can see a primary color but no spacing scale, generate a spacing scale consistent with the design's density. If you can see card components but no explicit shadow tokens, infer shadow values from the apparent elevation style. Never omit a required schema field — always provide your best professional judgment. The goal is a complete, deployable design system regardless of how much input was provided.
+
+FIGMA PLUGIN API NAMING — ALL values must use exact Figma Plugin API conventions:
+- Variable resolvedType: COLOR | FLOAT | STRING | BOOLEAN (all caps, no other values)
+- Effect type: DROP_SHADOW | INNER_SHADOW | LAYER_BLUR | BACKGROUND_BLUR (all caps)
+- Grid pattern: COLUMNS | ROWS | GRID (all caps)
+- fontStyle: use exact Figma strings only: "Thin" | "Extra Light" | "Light" | "Regular" | "Medium" | "Semi Bold" | "Bold" | "Extra Bold" | "Black"
+- lineHeight: { "value": number, "unit": "PIXELS" | "PERCENT" | "AUTO" }
+- letterSpacing: { "value": number, "unit": "PIXELS" | "PERCENT" }
+- Variable scopes (use only these exact strings, never "ALL_SCOPES"):
+  FRAME_FILL | SHAPE_FILL | TEXT_FILL | STROKE_COLOR | EFFECT_COLOR | GAP | CORNER_RADIUS | WIDTH_HEIGHT | FONT_SIZE | LINE_HEIGHT | LETTER_SPACING | FONT_WEIGHT | STROKE_FLOAT | EFFECT_FLOAT | OPACITY | FONT_FAMILY | FONT_STYLE
 
 Your output MUST be a JSON object matching EXACTLY this schema:
+
 {
   "meta": {
     "name": string,
     "primaryColor": string (hex),
+    "secondaryColor": string (hex),
     "bgColor": string (hex),
+    "surfaceColor": string (hex),
     "textColor": string (hex),
     "borderColor": string (hex),
     "buttonRadius": number (px),
     "cardRadius": number (px),
+    "inputRadius": number (px),
     "sidebarWidth": number (px),
     "fontFamily": string,
-    "extractedAt": string (ISO)
+    "monoFontFamily": string,
+    "extractedAt": string (ISO),
+    "inferenceMap": {
+      "primitives": "found" | "inferred",
+      "colorTokens": "found" | "inferred",
+      "spacingTokens": "found" | "inferred",
+      "motionTokens": "found" | "inferred",
+      "typography": "found" | "inferred",
+      "textStyles": "found" | "inferred",
+      "effectStyles": "found" | "inferred",
+      "gridStyles": "found" | "inferred",
+      "components": "found" | "inferred",
+      "patterns": "found" | "inferred"
+    }
   },
   "variables": {
     "collections": {
       "Primitives": [
-        { "name": string, "value": string, "type": "color"|"number"|"string", "resolvedType": "COLOR"|"FLOAT"|"STRING" }
+        {
+          "name": string,
+          "value": string,
+          "type": "color" | "number" | "string" | "boolean",
+          "resolvedType": "COLOR" | "FLOAT" | "STRING" | "BOOLEAN",
+          "scopes": string[],
+          "hiddenFromPublishing": true
+        }
       ],
-      "Tokens": [
-        { "name": string, "lightValue": string, "darkValue": string, "type": string, "resolvedType": string }
+      "Color": [
+        {
+          "name": string,
+          "lightValue": string,
+          "darkValue": string,
+          "lightAlias": string,
+          "darkAlias": string,
+          "resolvedType": "COLOR",
+          "scopes": string[],
+          "description": string
+        }
+      ],
+      "Spacing": [
+        {
+          "name": string,
+          "value": number,
+          "resolvedType": "FLOAT",
+          "scopes": ["GAP", "WIDTH_HEIGHT"],
+          "description": string
+        }
+      ],
+      "Typography": [
+        {
+          "name": string,
+          "value": string | number,
+          "resolvedType": "FLOAT" | "STRING",
+          "scopes": string[],
+          "description": string
+        }
+      ],
+      "Motion": [
+        {
+          "name": string,
+          "value": string | number,
+          "resolvedType": "FLOAT" | "STRING",
+          "description": string
+        }
       ],
       "Component Tokens": [
-        { "name": string, "value": string, "component": string, "property": string }
+        {
+          "name": string,
+          "value": string,
+          "component": string,
+          "property": string,
+          "resolvedType": "COLOR" | "FLOAT" | "STRING",
+          "scopes": string[]
+        }
       ]
     }
   },
   "styles": {
     "text": [
-      { "name": string, "fontFamily": string, "fontSize": number, "fontWeight": number, "lineHeight": number, "letterSpacing": number, "usage": string }
+      {
+        "name": string,
+        "fontFamily": string,
+        "fontStyle": string,
+        "fontSize": number,
+        "fontWeight": number,
+        "lineHeight": { "value": number, "unit": "PIXELS" | "PERCENT" | "AUTO" },
+        "letterSpacing": { "value": number, "unit": "PIXELS" | "PERCENT" },
+        "paragraphSpacing": number,
+        "usage": string,
+        "tier": "display" | "heading" | "body" | "label" | "code" | "caption"
+      }
     ],
     "color": [
       { "name": string, "color": string, "usage": string }
     ],
     "effects": [
-      { "name": string, "type": "drop-shadow"|"inner-shadow"|"blur"|"background-blur", "value": string, "css": string }
+      {
+        "name": string,
+        "type": "DROP_SHADOW" | "INNER_SHADOW" | "LAYER_BLUR" | "BACKGROUND_BLUR",
+        "radius": number,
+        "spread": number,
+        "color": string,
+        "offsetX": number,
+        "offsetY": number,
+        "css": string
+      }
     ],
     "grids": [
-      { "name": string, "type": "columns"|"rows"|"grid", "count": number, "gutter": number, "margin": number }
+      {
+        "name": string,
+        "pattern": "COLUMNS" | "ROWS" | "GRID",
+        "count": number,
+        "gutter": number,
+        "margin": number,
+        "alignment": "MIN" | "STRETCH" | "CENTER" | "MAX",
+        "breakpoint": string
+      }
     ]
   },
   "components": [
     {
       "name": string,
+      "tier": "atom" | "molecule" | "organism" | "pattern",
       "category": string,
       "variants": string[],
+      "states": string[],
       "variantProperties": { [key: string]: string[] },
-      "componentProperties": { [key: string]: { type: "TEXT"|"BOOLEAN"|"INSTANCE_SWAP", default: string } },
+      "componentProperties": { [key: string]: { "type": "TEXT" | "BOOLEAN" | "INSTANCE_SWAP", "default": string } },
       "tokenBindings": string[],
-      "styleBindings": string[]
+      "styleBindings": string[],
+      "variableBindings": { [property: string]: string }
+    }
+  ],
+  "patterns": [
+    {
+      "name": string,
+      "description": string,
+      "components": string[],
+      "layout": string
     }
   ]
 }
 
-Extract EVERY component visible. Minimum expected components: Button, Input, Card, Badge, Modal/Dialog, Navbar/Header, Sidebar/Nav, Table/List, Tabs, Dropdown/Select, Avatar, Alert/Banner, Tooltip, Chip/Pill, Icon, Spinner/Loader.
+REQUIRED COMPONENTS — extract or infer ALL of these, organized by tier:
 
-For colors: extract exact hex values when visible, otherwise infer from context.
-For typography: extract every distinct text style visible. Always include Display, H1, H2, H3, Body, Body SM, Caption, Label, Overline, Code.
+ATOMS (foundational, single-purpose):
+Button (variants: Primary/Secondary/Ghost/Destructive/Link; sizes: SM/MD/LG; states: Default/Hover/Pressed/Disabled/Loading)
+Input (variants: Default/Error/Success/Disabled; types: text/password/search/number)
+Checkbox (states: Unchecked/Checked/Indeterminate/Disabled)
+Radio (states: Unselected/Selected/Disabled)
+Toggle/Switch (states: Off/On/Disabled)
+Select/Dropdown (states: Closed/Open/Disabled; with search option)
+Textarea (states: Default/Focus/Error/Disabled)
+Badge/Tag (variants: Brand/Success/Warning/Error/Info/Neutral/Outline)
+Avatar (sizes: XS/SM/MD/LG/XL; variants: Image/Initials/Icon/Placeholder; with status dot)
+Icon (library: Outline/Solid/Custom)
+Spinner/Loader (sizes: SM/MD/LG; variants: Circular/Linear/Skeleton)
+Tooltip (placement: Top/Bottom/Left/Right)
+Divider (variants: Horizontal/Vertical; with/without label)
+Progress Bar (variants: Linear/Circular; states: Default/Success/Error)
+Chip/Pill (variants: Default/Dismissible/Interactive)
 
-Respond ONLY with the JSON object. No markdown, no explanation.`
+MOLECULES (composed of atoms):
+Form Field (label + input + helper text + error message)
+Search Bar (input + icon + clear button)
+Alert/Banner (variants: Info/Success/Warning/Error; with/without icon; with/without close)
+Card (variants: Basic/Elevated/Outlined/Interactive/Brand-filled)
+Stat Card (metric + label + trend + icon)
+List Item (with/without icon, avatar, action, checkbox)
+Menu Item (with/without icon, shortcut, submenu indicator)
+Breadcrumb
+Pagination (first/prev/numbers/next/last; compact variant)
+File Upload (dropzone + file list)
+Color Picker (swatch grid + hex input)
+Date Picker (calendar + input)
+Notification/Toast (variants: Info/Success/Warning/Error; position: top-right/bottom-center)
+Tab Item (variants: Underline/Pill/Contained; states: Active/Inactive/Disabled)
+Step/Stepper Item (states: Complete/Active/Upcoming)
+
+ORGANISMS (complex, page-level):
+Navigation Bar / Topbar (logo + nav links + actions + user menu)
+Sidebar / Left Nav (logo + nav sections + items + collapse toggle)
+Data Table (header + rows + sorting + selection + pagination)
+Tab Group (tab bar + content panel)
+Modal / Dialog (header + body + footer with actions; sizes: SM/MD/LG/Full)
+Drawer / Sheet (side panel; placement: Right/Left/Bottom)
+Form (multi-field with validation, section headers, submit)
+Empty State (illustration + title + description + CTA)
+Error State (404/500/Network variants)
+Skeleton Screen (page-level loading placeholder)
+Command Palette / Search Modal
+User Profile Menu / Account Dropdown
+Notification Panel / Activity Feed
+
+PATTERNS (full page compositions):
+Auth Pages (Sign in / Sign up / Forgot password)
+Dashboard Layout (topbar + sidebar + main content area + stat cards)
+List/Table Page (filters + table + pagination)
+Detail/Profile Page (header hero + tabs + content)
+Settings Page (sidebar nav + form sections)
+Onboarding Flow (multi-step with progress indicator)
+
+SPACING SCALE — always include all 9 steps inferred from design density:
+0: 0px, 1: 4px, 2: 8px, 3: 12px, 4: 16px, 5: 24px, 6: 32px, 7: 48px, 8: 64px, 9: 96px
+
+TYPOGRAPHY SCALE — always include all 10 styles:
+Display (36-72px, Bold/Extra Bold), H1 (28-36px), H2 (22-28px), H3 (18-22px), H4 (16-18px), Body LG (16-18px), Body (14-16px), Body SM (12-14px), Caption (11-12px), Label (11-13px, Semi Bold), Code/Mono (13-14px), Overline (11px, uppercase, tracked)
+
+MOTION TOKENS — always include even if no animations visible:
+Duration: instant(0ms), fast(100ms), base(200ms), slow(300ms), slower(500ms)
+Easing: linear, ease-in, ease-out, ease-in-out, spring, bounce
+
+COLOR SEMANTIC TOKENS — always include:
+Action: primary, secondary, ghost, destructive
+Surface: page, card, overlay, sidebar, code
+Text: primary, secondary, tertiary, inverse, link, disabled
+Border: default, strong, focus, error
+Status: success-bg/text/border, warning-bg/text/border, error-bg/text/border, info-bg/text/border
+
+Respond ONLY with the JSON object. No markdown, no explanation, no code fences.`
 
 // ── Extract endpoint ─────────────────────────────────────────────────────────
 async function extractHandler(req: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
@@ -107,11 +295,24 @@ async function extractHandler(req: HttpRequest, context: InvocationContext): Pro
     async start(controller) {
       const emit = (obj: object) => controller.enqueue(encoder.encode(JSON.stringify(obj) + '\n'))
 
-      const CATEGORIES = ['colors', 'typography', 'spacing', 'tokens', 'components', 'effects', 'grids', 'finalizing']
-      let catIdx = 0
+      const CATEGORIES = ['primitives', 'color-tokens', 'spacing-tokens', 'motion-tokens', 'typography', 'text-styles', 'effect-styles', 'grid-styles', 'components', 'patterns', 'finalizing']
+
+      const CATEGORY_KEYS: Record<string, string> = {
+        'primitives': '"Primitives"',
+        'color-tokens': '"Color"',
+        'spacing-tokens': '"Spacing"',
+        'motion-tokens': '"Motion"',
+        'typography': '"Typography"',
+        'text-styles': '"text"',
+        'effect-styles': '"effects"',
+        'grid-styles': '"grids"',
+        'components': '"components"',
+        'patterns': '"patterns"',
+      }
+      const emittedDone = new Set<string>()
 
       try {
-        emit({ type: 'progress', category: 'colors', message: 'Sending to Claude…' })
+        emit({ type: 'progress', category: 'primitives', message: 'Sending to Claude…' })
 
         const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
@@ -155,16 +356,18 @@ async function extractHandler(req: HttpRequest, context: InvocationContext): Pro
               const evt = JSON.parse(data)
               if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
                 jsonBuf += evt.delta.text
-                if (jsonBuf.length % 500 < 10 && catIdx < CATEGORIES.length) {
-                  emit({ type: 'progress', category: CATEGORIES[catIdx], message: `Extracting ${CATEGORIES[catIdx]}…` })
-                  if (catIdx < CATEGORIES.length - 1) catIdx++
+                for (const [cat, key] of Object.entries(CATEGORY_KEYS)) {
+                  if (!emittedDone.has(cat) && jsonBuf.includes(key)) {
+                    emit({ type: 'progress', category: cat, message: `${cat} extracted`, done: true })
+                    emittedDone.add(cat)
+                  }
                 }
               }
             } catch { /* partial */ }
           }
         }
 
-        for (const cat of CATEGORIES) emit({ type: 'progress', category: cat, message: `${cat} complete`, done: true })
+        emit({ type: 'progress', category: 'finalizing', message: 'finalizing extracted', done: true })
 
         let result: any = null
         try {
