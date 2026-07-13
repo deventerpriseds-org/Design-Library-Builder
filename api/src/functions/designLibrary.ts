@@ -1,5 +1,6 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions'
 import { TableClient, odata } from '@azure/data-tables'
+import { Readable } from 'stream'
 
 const CONN = process.env.AZURE_STORAGE_CONNECTION_STRING!
 const CLAUDE_API_KEY = process.env.ANTHROPIC_API_KEY || ''
@@ -256,67 +257,75 @@ async function extractHandler(req: HttpRequest, context: InvocationContext): Pro
     contentBlocks.push({ type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } })
   }
 
-  const encoder = new TextEncoder()
-  const stream = new ReadableStream({
-    async start(controller) {
-      // Each chunk is padded to >=4 KB with trailing spaces on the JSON line
-      // so Azure Functions / nginx proxies flush the chunk immediately rather
-      // than buffering until their internal threshold is reached.
-      const emit = (obj: object) => {
-        const json = JSON.stringify(obj)
-        const pad = Math.max(0, 4096 - json.length - 1)
-        controller.enqueue(encoder.encode(json + ' '.repeat(pad) + '\n'))
-      }
+  // Use Node.js Readable.from(asyncGenerator) — required for Azure Functions v4
+  // streaming. The Web ReadableStream API is buffered by the runtime; only a
+  // Node.js Readable is flushed chunk-by-chunk to the client.
+  async function* generate() {
+    // Pad every line to ≥4 KB so intermediate proxies flush immediately.
+    const line = (obj: object) => {
+      const json = JSON.stringify(obj)
+      return json + ' '.repeat(Math.max(0, 4096 - json.length - 1)) + '\n'
+    }
 
-      // Categories and their JSON key markers — used to detect semantic progress
-      // as Claude streams the output JSON. Each entry is the key Claude writes
-      // when it starts that section of the output.
-      const CATEGORIES = ['primitives', 'color-tokens', 'spacing-tokens', 'motion-tokens', 'typography', 'text-styles', 'effect-styles', 'grid-styles', 'components', 'patterns', 'finalizing']
-      const CAT_MARKERS: Record<string, string[]> = {
-        'primitives':      ['"variables"', '"Primitives"', '"primitives"'],
-        'color-tokens':    ['"Color"', '"color-tokens"', '"colorTokens"'],
-        'spacing-tokens':  ['"Spacing"', '"spacing"', '"spacingTokens"'],
-        'motion-tokens':   ['"Motion"', '"motion"', '"motionTokens"'],
-        'typography':      ['"Typography"', '"typography"', '"typographyPrimitives"'],
-        'text-styles':     ['"textStyles"', '"text-styles"'],
-        'effect-styles':   ['"effectStyles"', '"effect-styles"'],
-        'grid-styles':     ['"gridStyles"', '"grid-styles"'],
-        'components':      ['"components"'],
-        'patterns':        ['"patterns"'],
-        'finalizing':      ['"meta"'],
-      }
+    const CATEGORIES = ['primitives', 'color-tokens', 'spacing-tokens', 'motion-tokens', 'typography', 'text-styles', 'effect-styles', 'grid-styles', 'components', 'patterns', 'finalizing']
+    const CAT_MARKERS: Record<string, string[]> = {
+      'primitives':     ['"variables"', '"Primitives"', '"primitives"'],
+      'color-tokens':   ['"Color"', '"color-tokens"', '"colorTokens"'],
+      'spacing-tokens': ['"Spacing"', '"spacing"', '"spacingTokens"'],
+      'motion-tokens':  ['"Motion"', '"motion"', '"motionTokens"'],
+      'typography':     ['"Typography"', '"typography"', '"typographyPrimitives"'],
+      'text-styles':    ['"textStyles"', '"text-styles"'],
+      'effect-styles':  ['"effectStyles"', '"effect-styles"'],
+      'grid-styles':    ['"gridStyles"', '"grid-styles"'],
+      'components':     ['"components"'],
+      'patterns':       ['"patterns"'],
+      'finalizing':     ['"meta"'],
+    }
 
-      const completed = new Set<string>()
-      let activeCat = 'primitives'
+    const completed = new Set<string>()
+    let activeCat = 'primitives'
+    // Buffer yielded lines so the heartbeat interval can push into the generator
+    const queue: string[] = []
+    let resolve: (() => void) | null = null
+    const push = (obj: object) => { queue.push(line(obj)); if (resolve) resolve() }
 
-      function advanceProgress(chunk: string) {
-        for (const [cat, markers] of Object.entries(CAT_MARKERS)) {
-          if (completed.has(cat)) continue
-          if (markers.some(m => chunk.includes(m))) {
-            // Mark previous active category done before moving to this one
-            if (activeCat !== cat && !completed.has(activeCat)) {
-              completed.add(activeCat)
-              emit({ type: 'progress', category: activeCat, message: `${activeCat} extracted`, done: true })
-            }
-            activeCat = cat
-            emit({ type: 'progress', category: cat, message: `Extracting ${cat}…` })
-            break
+    const keepAlive = setInterval(() => push({ type: 'heartbeat', ts: Date.now() }), 5000)
+    const stop = () => clearInterval(keepAlive)
+
+    function advanceProgress(buf: string) {
+      for (const [cat, markers] of Object.entries(CAT_MARKERS)) {
+        if (completed.has(cat)) continue
+        if (markers.some(m => buf.includes(m))) {
+          if (activeCat !== cat && !completed.has(activeCat)) {
+            completed.add(activeCat)
+            push({ type: 'progress', category: activeCat, message: `${activeCat} extracted`, done: true })
           }
+          activeCat = cat
+          push({ type: 'progress', category: cat, message: `Extracting ${cat}…` })
+          break
         }
       }
+    }
 
-      // Keep-alive: emit a heartbeat every 5 s so the proxy doesn't close
-      // an idle connection during the cold-start / Anthropic connect phase.
-      let keepAlive: ReturnType<typeof setInterval> | null = setInterval(
-        () => emit({ type: 'heartbeat', ts: Date.now() }),
-        5000,
-      )
-      const stopKeepAlive = () => { if (keepAlive) { clearInterval(keepAlive); keepAlive = null } }
+    // Drain the queue, waiting for new items if empty
+    async function* drain() {
+      while (true) {
+        while (queue.length) yield queue.shift()!
+        await new Promise<void>(r => { resolve = r })
+        resolve = null
+      }
+    }
 
+    // Kick off the Anthropic call in parallel with the drain loop
+    let done = false
+    let error: string | null = null
+    let finalResult: any = null
+
+    push({ type: 'progress', category: 'primitives', message: 'Connecting to Claude…' })
+    push({ type: 'heartbeat', ts: Date.now() })
+
+    const work = (async () => {
       try {
-        emit({ type: 'progress', category: 'primitives', message: 'Connecting to Claude…' })
-        emit({ type: 'heartbeat', ts: Date.now() })
-
         const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
           headers: {
@@ -334,13 +343,12 @@ async function extractHandler(req: HttpRequest, context: InvocationContext): Pro
         })
 
         if (!anthropicRes.ok) {
-          stopKeepAlive()
           const err = await anthropicRes.json().catch(() => ({})) as any
-          emit({ type: 'progress', category: 'error', message: err?.error?.message || `Anthropic API ${anthropicRes.status}`, done: true })
-          controller.close(); return
+          error = err?.error?.message || `Anthropic API ${anthropicRes.status}`
+          return
         }
 
-        emit({ type: 'progress', category: 'primitives', message: 'Claude is analysing your design…' })
+        push({ type: 'progress', category: 'primitives', message: 'Claude is analysing your design…' })
 
         const reader = anthropicRes.body!.getReader()
         const dec = new TextDecoder()
@@ -349,71 +357,66 @@ async function extractHandler(req: HttpRequest, context: InvocationContext): Pro
         let tokenCount = 0
 
         while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
+          const { done: d, value } = await reader.read()
+          if (d) break
           sseBuf += dec.decode(value, { stream: true })
           const lines = sseBuf.split('\n')
           sseBuf = lines.pop()!
-
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue
-            const data = line.slice(6)
+          for (const l of lines) {
+            if (!l.startsWith('data: ')) continue
+            const data = l.slice(6)
             if (data === '[DONE]') continue
             try {
               const evt = JSON.parse(data)
               if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
-                const chunk = evt.delta.text
-                jsonBuf += chunk
+                jsonBuf += evt.delta.text
                 tokenCount++
                 advanceProgress(jsonBuf)
               }
-            } catch { /* partial SSE line */ }
+            } catch {}
           }
         }
 
-        stopKeepAlive()
-
-        // Mark any remaining categories done
         for (const cat of CATEGORIES) {
-          if (!completed.has(cat)) {
-            emit({ type: 'progress', category: cat, message: `${cat} extracted`, done: true })
-          }
+          if (!completed.has(cat)) push({ type: 'progress', category: cat, message: `${cat} extracted`, done: true })
         }
-
-        emit({ type: 'progress', category: 'finalizing', message: 'Parsing result…' })
+        push({ type: 'progress', category: 'finalizing', message: 'Parsing result…' })
 
         let result: any = null
         try {
-          const clean = jsonBuf.replace(/^```json?\s*/i, '').replace(/```\s*$/, '').trim()
-          result = JSON.parse(clean)
-        } catch (e) {
-          // Try to extract JSON from within the buffer if Claude wrapped it
-          const jsonMatch = jsonBuf.match(/\{[\s\S]*\}/)
-          if (jsonMatch) {
-            try { result = JSON.parse(jsonMatch[0]) } catch {}
-          }
-          if (!result) {
-            emit({ type: 'progress', category: 'error', message: `JSON parse failed: ${(e as Error).message}`, done: true })
-            emit({ type: 'debug', raw: jsonBuf.slice(0, 500) })
-            controller.close(); return
-          }
+          result = JSON.parse(jsonBuf.replace(/^```json?\s*/i, '').replace(/```\s*$/, '').trim())
+        } catch {
+          const m = jsonBuf.match(/\{[\s\S]*\}/)
+          if (m) try { result = JSON.parse(m[0]) } catch {}
         }
 
+        if (!result) { error = 'JSON parse failed — Claude response was not valid JSON'; return }
         if (!result.meta) result.meta = {}
         result.meta.name = result.meta.name || name || 'Design System'
         result.meta.extractedAt = new Date().toISOString()
         result.meta.tokenCount = tokenCount
-
-        emit({ type: 'result', data: result })
+        finalResult = result
       } catch (e) {
-        stopKeepAlive()
-        emit({ type: 'progress', category: 'error', message: (e as Error).message, done: true })
+        error = (e as Error).message
+      } finally {
+        done = true
+        stop()
+        if (resolve) resolve()
       }
-      controller.close()
-    }
-  })
+    })()
 
-  return { status: 200, headers: STREAM_H, body: stream as any }
+    for await (const chunk of drain()) {
+      yield chunk
+      if (done) break
+    }
+    await work
+
+    if (error) yield line({ type: 'progress', category: 'error', message: error, done: true })
+    else if (finalResult) yield line({ type: 'result', data: finalResult })
+  }
+
+  const nodeStream = Readable.from(generate(), { objectMode: false })
+  return { status: 200, headers: STREAM_H, body: nodeStream as any }
 }
 
 // ── Save endpoint ─────────────────────────────────────────────────────────────
