@@ -12,39 +12,35 @@ function authHeaders() {
   return _sessionToken ? { Authorization: `Bearer ${_sessionToken}` } : {}
 }
 
-// POST /design-library/extract  — sends images + prompts to Claude, streams JSON
+// POST /design-library/extract → job ID, then poll GET /design-library/status/{id}
 export async function extractDesign({ name, primaryColor, images, urls, description }, onChunk) {
-  const body = { name, primaryColor, images, urls, description }
-  const res = await fetch(`${API_BASE}/design-library/extract`, {
+  // Start the job
+  const startRes = await fetch(`${API_BASE}/design-library/extract`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ name, primaryColor, images, urls, description }),
   })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(err?.error || `Extract failed: ${res.status}`)
+  if (!startRes.ok) {
+    const err = await startRes.json().catch(() => ({}))
+    throw new Error(err?.error || `Extract failed: ${startRes.status}`)
   }
-  // Streamed NDJSON — each line is a progress event or the final result
-  const reader = res.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-  let result = null
+  const { jobId } = await startRes.json()
+
+  // Poll until done
+  const POLL_MS = 2000
   while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop()
-    for (const line of lines) {
-      if (!line.trim()) continue
-      try {
-        const event = JSON.parse(line)
-        if (event.type === 'progress' || event.type === 'heartbeat') onChunk?.(event)
-        if (event.type === 'result') result = event.data
-      } catch { /* partial line */ }
+    await new Promise(r => setTimeout(r, POLL_MS))
+    const pollRes = await fetch(`${API_BASE}/design-library/status/${jobId}`, { headers: authHeaders() })
+    if (!pollRes.ok) throw new Error(`Status check failed: ${pollRes.status}`)
+    const data = await pollRes.json()
+    if (data.status === 'running') {
+      onChunk?.({ type: 'heartbeat', phase: data.phase, elapsed: data.elapsed })
+    } else if (data.status === 'error') {
+      throw new Error(data.error || 'Extraction failed')
+    } else if (data.status === 'done') {
+      return data.result
     }
   }
-  return result
 }
 
 // GET /design-library/saved  — list user's saved design systems

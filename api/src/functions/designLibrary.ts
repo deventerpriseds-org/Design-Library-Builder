@@ -1,6 +1,5 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions'
 import { TableClient, odata } from '@azure/data-tables'
-import { Readable } from 'stream'
 
 const CONN = process.env.AZURE_STORAGE_CONNECTION_STRING!
 const CLAUDE_API_KEY = process.env.ANTHROPIC_API_KEY || ''
@@ -232,191 +231,116 @@ For each component: include all applicable variant axes, states, sizes, componen
 
 Respond ONLY with the JSON object. No markdown fences, no explanation.`
 
-// ── Extract endpoint ─────────────────────────────────────────────────────────
-async function extractHandler(req: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
-  if (req.method === 'OPTIONS') return { status: 204, headers: CORS }
+// ── In-memory job store (survives within a single function instance) ──────────
+interface Job {
+  status: 'running' | 'done' | 'error'
+  phase: string
+  result?: any
+  error?: string
+  startedAt: number
+}
+const JOBS = new Map<string, Job>()
 
-  if (!CLAUDE_API_KEY) {
-    return { status: 500, headers: JSON_H, jsonBody: { error: 'ANTHROPIC_API_KEY not configured on Function App' } }
-  }
+// ── POST /design-library/extract — starts job, returns ID immediately ─────────
+async function extractHandler(req: HttpRequest, _ctx: InvocationContext): Promise<HttpResponseInit> {
+  if (req.method === 'OPTIONS') return { status: 204, headers: CORS }
+  if (!CLAUDE_API_KEY) return { status: 500, headers: JSON_H, jsonBody: { error: 'ANTHROPIC_API_KEY not configured' } }
 
   let body: any
   try { body = await req.json() } catch { return { status: 400, headers: JSON_H, jsonBody: { error: 'Invalid JSON body' } } }
 
   const { name, primaryColor, images = [], urls = [], description = '' } = body as any
+  const jobId = crypto.randomUUID()
 
   const contentBlocks: any[] = []
   contentBlocks.push({
     type: 'text',
-    text: `App name: ${name || 'Unknown'}\nPrimary brand color hint: ${primaryColor || 'none'}\nDescription: ${description || 'none'}\nURLs provided: ${urls.join(', ') || 'none'}\n\nExtract the complete design system from the attached screenshots.`
+    text: `App name: ${name || 'Unknown'}\nPrimary brand color hint: ${primaryColor || 'none'}\nDescription: ${description || 'none'}\nURLs provided: ${urls.join(', ') || 'none'}\n\nExtract the complete design system from the attached screenshots.`,
   })
-
-  for (const img of images.slice(0, 20)) {
+  for (const img of (images as any[]).slice(0, 20)) {
     const match = img.dataUrl?.match(/^data:(image\/[^;]+);base64,(.+)$/)
-    if (!match) continue
-    contentBlocks.push({ type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } })
+    if (match) contentBlocks.push({ type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } })
   }
 
-  // Use Node.js Readable.from(asyncGenerator) — required for Azure Functions v4
-  // streaming. The Web ReadableStream API is buffered by the runtime; only a
-  // Node.js Readable is flushed chunk-by-chunk to the client.
-  async function* generate() {
-    // Pad every line to ≥4 KB so intermediate proxies flush immediately.
-    const line = (obj: object) => {
-      const json = JSON.stringify(obj)
-      return json + ' '.repeat(Math.max(0, 4096 - json.length - 1)) + '\n'
-    }
+  const job: Job = { status: 'running', phase: 'Connecting to Claude…', startedAt: Date.now() }
+  JOBS.set(jobId, job)
 
-    const CATEGORIES = ['primitives', 'color-tokens', 'spacing-tokens', 'motion-tokens', 'typography', 'text-styles', 'effect-styles', 'grid-styles', 'components', 'patterns', 'finalizing']
-    const CAT_MARKERS: Record<string, string[]> = {
-      'primitives':     ['"variables"', '"Primitives"', '"primitives"'],
-      'color-tokens':   ['"Color"', '"color-tokens"', '"colorTokens"'],
-      'spacing-tokens': ['"Spacing"', '"spacing"', '"spacingTokens"'],
-      'motion-tokens':  ['"Motion"', '"motion"', '"motionTokens"'],
-      'typography':     ['"Typography"', '"typography"', '"typographyPrimitives"'],
-      'text-styles':    ['"textStyles"', '"text-styles"'],
-      'effect-styles':  ['"effectStyles"', '"effect-styles"'],
-      'grid-styles':    ['"gridStyles"', '"grid-styles"'],
-      'components':     ['"components"'],
-      'patterns':       ['"patterns"'],
-      'finalizing':     ['"meta"'],
-    }
+  // Run Anthropic call in background — do NOT await
+  ;(async () => {
+    try {
+      job.phase = 'Calling Claude…'
+      const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': CLAUDE_API_KEY, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 16000,
+          system: SYSTEM_PROMPT,
+          messages: [{ role: 'user', content: contentBlocks }],
+          stream: true,
+        }),
+      })
 
-    const completed = new Set<string>()
-    let activeCat = 'primitives'
-    // Buffer yielded lines so the heartbeat interval can push into the generator
-    const queue: string[] = []
-    let resolve: (() => void) | null = null
-    const push = (obj: object) => { queue.push(line(obj)); if (resolve) resolve() }
-
-    const keepAlive = setInterval(() => push({ type: 'heartbeat', ts: Date.now() }), 5000)
-    const stop = () => clearInterval(keepAlive)
-
-    function advanceProgress(buf: string) {
-      for (const [cat, markers] of Object.entries(CAT_MARKERS)) {
-        if (completed.has(cat)) continue
-        if (markers.some(m => buf.includes(m))) {
-          if (activeCat !== cat && !completed.has(activeCat)) {
-            completed.add(activeCat)
-            push({ type: 'progress', category: activeCat, message: `${activeCat} extracted`, done: true })
-          }
-          activeCat = cat
-          push({ type: 'progress', category: cat, message: `Extracting ${cat}…` })
-          break
-        }
+      if (!anthropicRes.ok) {
+        const err = await anthropicRes.json().catch(() => ({})) as any
+        job.status = 'error'; job.error = err?.error?.message || `Anthropic API ${anthropicRes.status}`; return
       }
-    }
 
-    // Drain the queue, waiting for new items if empty
-    async function* drain() {
+      job.phase = 'Claude is analysing your design…'
+      const reader = anthropicRes.body!.getReader()
+      const dec = new TextDecoder()
+      let sseBuf = '', jsonBuf = '', tokenCount = 0
+
       while (true) {
-        while (queue.length) yield queue.shift()!
-        await new Promise<void>(r => { resolve = r })
-        resolve = null
+        const { done, value } = await reader.read()
+        if (done) break
+        sseBuf += dec.decode(value, { stream: true })
+        const lines = sseBuf.split('\n'); sseBuf = lines.pop()!
+        for (const l of lines) {
+          if (!l.startsWith('data: ')) continue
+          const data = l.slice(6); if (data === '[DONE]') continue
+          try {
+            const evt = JSON.parse(data)
+            if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
+              jsonBuf += evt.delta.text; tokenCount++
+              // Update phase label based on what Claude has written so far
+              if (jsonBuf.includes('"components"')) job.phase = 'Extracting components…'
+              else if (jsonBuf.includes('"textStyles"')) job.phase = 'Extracting text styles…'
+              else if (jsonBuf.includes('"variables"')) job.phase = 'Extracting tokens…'
+            }
+          } catch {}
+        }
       }
-    }
 
-    // Kick off the Anthropic call in parallel with the drain loop
-    let done = false
-    let error: string | null = null
-    let finalResult: any = null
-
-    push({ type: 'progress', category: 'primitives', message: 'Connecting to Claude…' })
-    push({ type: 'heartbeat', ts: Date.now() })
-
-    const work = (async () => {
-      try {
-        const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': CLAUDE_API_KEY,
-            'anthropic-version': '2023-06-01',
-          },
-          body: JSON.stringify({
-            model: 'claude-sonnet-4-6',
-            max_tokens: 16000,
-            system: SYSTEM_PROMPT,
-            messages: [{ role: 'user', content: contentBlocks }],
-            stream: true,
-          }),
-        })
-
-        if (!anthropicRes.ok) {
-          const err = await anthropicRes.json().catch(() => ({})) as any
-          error = err?.error?.message || `Anthropic API ${anthropicRes.status}`
-          return
-        }
-
-        push({ type: 'progress', category: 'primitives', message: 'Claude is analysing your design…' })
-
-        const reader = anthropicRes.body!.getReader()
-        const dec = new TextDecoder()
-        let sseBuf = ''
-        let jsonBuf = ''
-        let tokenCount = 0
-
-        while (true) {
-          const { done: d, value } = await reader.read()
-          if (d) break
-          sseBuf += dec.decode(value, { stream: true })
-          const lines = sseBuf.split('\n')
-          sseBuf = lines.pop()!
-          for (const l of lines) {
-            if (!l.startsWith('data: ')) continue
-            const data = l.slice(6)
-            if (data === '[DONE]') continue
-            try {
-              const evt = JSON.parse(data)
-              if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
-                jsonBuf += evt.delta.text
-                tokenCount++
-                advanceProgress(jsonBuf)
-              }
-            } catch {}
-          }
-        }
-
-        for (const cat of CATEGORIES) {
-          if (!completed.has(cat)) push({ type: 'progress', category: cat, message: `${cat} extracted`, done: true })
-        }
-        push({ type: 'progress', category: 'finalizing', message: 'Parsing result…' })
-
-        let result: any = null
-        try {
-          result = JSON.parse(jsonBuf.replace(/^```json?\s*/i, '').replace(/```\s*$/, '').trim())
-        } catch {
-          const m = jsonBuf.match(/\{[\s\S]*\}/)
-          if (m) try { result = JSON.parse(m[0]) } catch {}
-        }
-
-        if (!result) { error = 'JSON parse failed — Claude response was not valid JSON'; return }
-        if (!result.meta) result.meta = {}
-        result.meta.name = result.meta.name || name || 'Design System'
-        result.meta.extractedAt = new Date().toISOString()
-        result.meta.tokenCount = tokenCount
-        finalResult = result
-      } catch (e) {
-        error = (e as Error).message
-      } finally {
-        done = true
-        stop()
-        if (resolve) resolve()
+      job.phase = 'Parsing result…'
+      let result: any = null
+      try { result = JSON.parse(jsonBuf.replace(/^```json?\s*/i, '').replace(/```\s*$/, '').trim()) } catch {
+        const m = jsonBuf.match(/\{[\s\S]*\}/); if (m) try { result = JSON.parse(m[0]) } catch {}
       }
-    })()
-
-    for await (const chunk of drain()) {
-      yield chunk
-      if (done) break
+      if (!result) { job.status = 'error'; job.error = 'JSON parse failed — Claude returned invalid JSON'; return }
+      if (!result.meta) result.meta = {}
+      result.meta.name = result.meta.name || name || 'Design System'
+      result.meta.extractedAt = new Date().toISOString()
+      result.meta.tokenCount = tokenCount
+      job.result = result; job.status = 'done'; job.phase = 'Done'
+    } catch (e) {
+      job.status = 'error'; job.error = (e as Error).message
     }
-    await work
+  })()
 
-    if (error) yield line({ type: 'progress', category: 'error', message: error, done: true })
-    else if (finalResult) yield line({ type: 'result', data: finalResult })
-  }
+  return { status: 202, headers: JSON_H, jsonBody: { jobId } }
+}
 
-  const nodeStream = Readable.from(generate(), { objectMode: false })
-  return { status: 200, headers: STREAM_H, body: nodeStream as any }
+// ── GET /design-library/status/{jobId} — poll for job result ─────────────────
+async function statusHandler(req: HttpRequest, _ctx: InvocationContext): Promise<HttpResponseInit> {
+  if (req.method === 'OPTIONS') return { status: 204, headers: CORS }
+  const jobId = req.params.jobId
+  const job = JOBS.get(jobId)
+  if (!job) return { status: 404, headers: JSON_H, jsonBody: { error: 'Job not found' } }
+  if (job.status === 'running') return { status: 200, headers: JSON_H, jsonBody: { status: 'running', phase: job.phase, elapsed: Date.now() - job.startedAt } }
+  if (job.status === 'error') { JOBS.delete(jobId); return { status: 200, headers: JSON_H, jsonBody: { status: 'error', error: job.error } } }
+  JOBS.delete(jobId)
+  return { status: 200, headers: JSON_H, jsonBody: { status: 'done', result: job.result } }
 }
 
 // ── Save endpoint ─────────────────────────────────────────────────────────────
@@ -498,8 +422,14 @@ app.http('designLibraryExtract', {
   authLevel: 'anonymous',
   route: 'design-library/extract',
   handler: extractHandler,
-  stream: true,
-} as any)
+})
+
+app.http('designLibraryStatus', {
+  methods: ['GET', 'OPTIONS'],
+  authLevel: 'anonymous',
+  route: 'design-library/status/{jobId}',
+  handler: statusHandler,
+})
 
 app.http('designLibrarySave', {
   methods: ['POST', 'OPTIONS'],

@@ -72,8 +72,9 @@ export default function Extract() {
         },
         (event) => {
           lastHeartbeat.current = Date.now()
-          if (event.type === 'heartbeat') return  // just update the ref, don't log
-          dispatch({ type: 'LOG_CHUNK', event })
+          if (event.type === 'heartbeat' && event.phase) {
+            dispatch({ type: 'LOG_CHUNK', event: { type: 'progress', category: 'primitives', message: event.phase } })
+          }
         },
       )
       dispatch({ type: 'SET_RESULT', result })
