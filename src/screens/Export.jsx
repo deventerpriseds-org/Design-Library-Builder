@@ -226,7 +226,7 @@ export default function Export() {
   }
 
   async function handleSave() {
-    if (!state.user) { go('/upload'); return }
+    if (!state.user) { setSaveErr('Sign in to save your library — use the Upload screen to connect your account.'); return }
     setSaving(true); setSaveErr('')
     try {
       const saved = await saveDesignSystem({ ...r, id: r.id || crypto.randomUUID() })
