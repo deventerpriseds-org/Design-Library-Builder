@@ -42,9 +42,10 @@ jobs:
           GRAPH_TOKEN: ${{ steps.graph.outputs.token }}
           REDIRECT_URI: https://${{ steps.swa.outputs.hostname }}
         run: |
-          # Look up existing app by display name
+          # Look up existing app by display name (filter value must be URL-encoded)
+          FILTER=$(python3 -c "import urllib.parse; print(urllib.parse.quote(\"displayName eq '${MS_APP_NAME}'\"))")
           EXISTING=$(curl -s -X GET \
-            "https://graph.microsoft.com/v1.0/applications?\$filter=displayName eq '$MS_APP_NAME'" \
+            "https://graph.microsoft.com/v1.0/applications?\$filter=${FILTER}" \
             -H "Authorization: Bearer $GRAPH_TOKEN" \
             -H "Content-Type: application/json")
 
@@ -58,8 +59,9 @@ jobs:
               -H "Authorization: Bearer $GRAPH_TOKEN" \
               -H "Content-Type: application/json" \
               -d "{\"displayName\":\"$MS_APP_NAME\",\"signInAudience\":\"AzureADMyOrg\",\"spa\":{\"redirectUris\":[\"$REDIRECT_URI\"]}}")
-            APP_ID=$(echo "$RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))")
-            CLIENT_ID=$(echo "$RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('appId',''))")
+            APP_ID=$(echo "$RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null || echo "")
+            CLIENT_ID=$(echo "$RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('appId',''))" 2>/dev/null || echo "")
+            echo "Graph create response: $RESULT"
             echo "Created. appId=$CLIENT_ID"
           else
             echo "Found existing app. Updating SPA redirect URI to $REDIRECT_URI"
