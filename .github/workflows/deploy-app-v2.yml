@@ -80,8 +80,9 @@ jobs:
         id: pgdb
         env:
           PG_SERVER: ux-design-pg
-          PG_ADMIN_USER: Admin_uxdesign
+          PG_ADMIN_USER: Admin_eds
           PG_DB: ux_design
+          PG_PASSWORD: ${{ secrets.Azure_admin_pw }}
         run: |
           # Create Flexible Server if absent
           EXISTS=$(az postgres flexible-server show \
@@ -95,7 +96,7 @@ jobs:
               --resource-group $RESOURCE_GROUP \
               --location eastus \
               --admin-user $PG_ADMIN_USER \
-              --admin-password "${{ secrets.AZURE_PG_UXDESIGN_PASSWORD }}" \
+              --admin-password "$PG_PASSWORD" \
               --sku-name Standard_B1ms \
               --tier Burstable \
               --version 16 \
@@ -112,12 +113,12 @@ jobs:
             --name $PG_SERVER \
             --resource-group $RESOURCE_GROUP \
             --query "fullyQualifiedDomainName" -o tsv 2>/dev/null || echo "")
-          CS="postgresql://$PG_ADMIN_USER:${{ secrets.AZURE_PG_UXDESIGN_PASSWORD }}@${HOST}:5432/$PG_DB?sslmode=require"
+          CS="postgresql://$PG_ADMIN_USER:${PG_PASSWORD}@${HOST}:5432/$PG_DB?sslmode=require"
           echo "::add-mask::$CS"
           echo "connection_string=$CS" >> $GITHUB_OUTPUT
-          # Run migrations using psql if available
-          if command -v psql &>/dev/null && [ -n "$HOST" ]; then
-            PGPASSWORD="${{ secrets.AZURE_PG_UXDESIGN_PASSWORD }}" psql \
+          # Run migrations
+          if [ -n "$HOST" ]; then
+            PGPASSWORD="$PG_PASSWORD" psql \
               "host=$HOST port=5432 dbname=$PG_DB user=$PG_ADMIN_USER sslmode=require" \
               -f api/migrations/ux_design.sql || true
           fi
