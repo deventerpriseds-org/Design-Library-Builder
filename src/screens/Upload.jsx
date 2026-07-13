@@ -130,6 +130,7 @@ export default function Upload() {
         </p>
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
           <input className="dlg-input" placeholder="https://…" value={urlInput}
+            data-testid="url-input"
             onChange={(e) => setUrlInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && addUrl()} style={{ flex: 1 }} />
           <button className="dlg-btn dlg-btn-primary" onClick={addUrl}>Add</button>
