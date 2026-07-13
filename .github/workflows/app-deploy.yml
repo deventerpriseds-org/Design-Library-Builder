@@ -3,7 +3,6 @@ name: Deploy App to Azure Static Web Apps
 on:
   push:
     branches: [main, claude/figma-design-library-generator-esrbk9]
-  workflow_dispatch:
     paths:
       - 'src/**'
       - 'public/**'
