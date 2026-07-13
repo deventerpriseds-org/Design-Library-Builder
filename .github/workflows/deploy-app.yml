@@ -73,16 +73,16 @@ jobs:
           REDIRECT="https://${{ steps.swa.outputs.hostname }}"
           if [ -n "${{ steps.msid.outputs.client_id }}" ] && [ -n "${{ steps.swa.outputs.hostname }}" ]; then
             EXISTING=$(az ad app show --id "${{ steps.msid.outputs.client_id }}" \
-              --query "web.redirectUris" -o tsv 2>/dev/null || echo "")
+              --query "spa.redirectUris" -o tsv 2>/dev/null || echo "")
             if echo "$EXISTING" | grep -qF "$REDIRECT"; then
               echo "Redirect URI already registered: $REDIRECT"
             else
-              echo "Registering redirect URI: $REDIRECT"
+              echo "Registering SPA redirect URI: $REDIRECT"
               ALL_URIS=$(az ad app show --id "${{ steps.msid.outputs.client_id }}" \
-                --query "web.redirectUris" -o tsv 2>/dev/null | tr '\n' ' ')
+                --query "spa.redirectUris" -o tsv 2>/dev/null | tr '\n' ' ')
               ALL_URIS="$ALL_URIS $REDIRECT"
               az ad app update --id "${{ steps.msid.outputs.client_id }}" \
-                --web-redirect-uris $ALL_URIS 2>/dev/null || true
+                --spa-redirect-uris $ALL_URIS 2>/dev/null || true
             fi
           fi
 
