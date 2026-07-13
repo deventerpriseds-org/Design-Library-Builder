@@ -3,3 +3,5 @@ dist/
 .env
 .env.local
 *.local
+v2/node_modules/
+v2/dist/
