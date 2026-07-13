@@ -66,6 +66,26 @@ jobs:
             --query "defaultHostname" -o tsv 2>/dev/null || echo "")
           echo "hostname=$HOST" >> $GITHUB_OUTPUT
 
+      # Register this app's own SWA URL as a redirect URI on the Entra app.
+      # Uses --set-redirect-uris to ADD without clobbering existing entries.
+      - name: Register SWA redirect URI on Entra app
+        run: |
+          REDIRECT="https://${{ steps.swa.outputs.hostname }}"
+          if [ -n "${{ steps.msid.outputs.client_id }}" ] && [ -n "${{ steps.swa.outputs.hostname }}" ]; then
+            EXISTING=$(az ad app show --id "${{ steps.msid.outputs.client_id }}" \
+              --query "web.redirectUris" -o tsv 2>/dev/null || echo "")
+            if echo "$EXISTING" | grep -qF "$REDIRECT"; then
+              echo "Redirect URI already registered: $REDIRECT"
+            else
+              echo "Registering redirect URI: $REDIRECT"
+              ALL_URIS=$(az ad app show --id "${{ steps.msid.outputs.client_id }}" \
+                --query "web.redirectUris" -o tsv 2>/dev/null | tr '\n' ' ')
+              ALL_URIS="$ALL_URIS $REDIRECT"
+              az ad app update --id "${{ steps.msid.outputs.client_id }}" \
+                --web-redirect-uris $ALL_URIS 2>/dev/null || true
+            fi
+          fi
+
       - name: Resolve API URL
         id: api
         run: |
@@ -87,7 +107,7 @@ jobs:
           VITE_GOOGLE_REDIRECT_URI: https://proud-hill-09accd00f.7.azurestaticapps.net
           VITE_MS_CLIENT_ID: ${{ steps.msid.outputs.client_id }}
           VITE_MS_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          VITE_MS_REDIRECT_URI: https://purple-ground-0f377120f.7.azurestaticapps.net
+          VITE_MS_REDIRECT_URI: https://${{ steps.swa.outputs.hostname }}
           VITE_API_BASE: ${{ steps.api.outputs.base }}
         run: |
           echo "Building with API base: $VITE_API_BASE"
