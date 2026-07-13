@@ -26,7 +26,7 @@ test.describe('Upload screen', () => {
 
   test('can add and remove a URL', async ({ page }) => {
     await page.getByTestId('url-input').fill('https://example.com')
-    await page.getByRole('button', { name: 'Add' }).click()
+    await page.getByRole('button', { name: 'Add', exact: true }).click()
     await expect(page.getByText('https://example.com')).toBeVisible()
     await page.locator('button').filter({ hasText: '×' }).first().click()
     await expect(page.getByText('https://example.com')).not.toBeVisible()
