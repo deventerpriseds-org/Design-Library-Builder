@@ -74,10 +74,12 @@ jobs:
             --resource-group $RESOURCE_GROUP \
             --query "defaultHostName" -o tsv 2>/dev/null || echo "")
           if [ -n "$HOST" ]; then
-            echo "base=https://$HOST/api" >> $GITHUB_OUTPUT
+            API_BASE="https://$HOST/api"
           else
-            echo "base=https://design-library-builder-api.azurewebsites.net/api" >> $GITHUB_OUTPUT
+            API_BASE="https://design-library-builder-api.azurewebsites.net/api"
           fi
+          echo "base=$API_BASE" >> $GITHUB_OUTPUT
+          echo "Resolved API base: $API_BASE"
 
       - name: Build
         env:
@@ -85,8 +87,10 @@ jobs:
           VITE_GOOGLE_REDIRECT_URI: https://proud-hill-09accd00f.7.azurestaticapps.net
           VITE_MS_CLIENT_ID: ${{ steps.msid.outputs.client_id }}
           VITE_MS_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          VITE_MS_REDIRECT_URI: https://purple-ground-0f377120f.7.azurestaticapps.net
           VITE_API_BASE: ${{ steps.api.outputs.base }}
         run: |
+          echo "Building with API base: $VITE_API_BASE"
           npm ci
           npm run build
 

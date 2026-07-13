@@ -5,6 +5,8 @@ import { API_BASE, setSessionToken } from './api.js'
 
 const TENANT = import.meta.env.VITE_MS_TENANT_ID || 'ee633423-c321-413c-a191-ace8b07e4196'
 const MS_CLIENT_ID = import.meta.env.VITE_MS_CLIENT_ID || ''
+// Fixed redirect URI already registered in the Entra app — avoids registering each new deployment
+const MS_REDIRECT_URI = import.meta.env.VITE_MS_REDIRECT_URI || 'https://purple-ground-0f377120f.7.azurestaticapps.net'
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
 const GOOGLE_REDIRECT_URI = import.meta.env.VITE_GOOGLE_REDIRECT_URI || ''
 const LS_KEY = 'dlg_auth_user'
@@ -26,7 +28,7 @@ async function getMsal() {
   if (!MS_CLIENT_ID) throw new Error('Microsoft sign-in not configured (VITE_MS_CLIENT_ID missing)')
   if (!msalApp) {
     msalApp = new PublicClientApplication({
-      auth: { clientId: MS_CLIENT_ID, authority: `https://login.microsoftonline.com/${TENANT}`, redirectUri: window.location.origin },
+      auth: { clientId: MS_CLIENT_ID, authority: `https://login.microsoftonline.com/${TENANT}`, redirectUri: MS_REDIRECT_URI },
       cache: { cacheLocation: 'localStorage' },
     })
     await msalApp.initialize()
