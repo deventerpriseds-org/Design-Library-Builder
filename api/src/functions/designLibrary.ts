@@ -259,7 +259,14 @@ async function extractHandler(req: HttpRequest, context: InvocationContext): Pro
   const encoder = new TextEncoder()
   const stream = new ReadableStream({
     async start(controller) {
-      const emit = (obj: object) => controller.enqueue(encoder.encode(JSON.stringify(obj) + '\n'))
+      // Each chunk is padded to >=4 KB with trailing spaces on the JSON line
+      // so Azure Functions / nginx proxies flush the chunk immediately rather
+      // than buffering until their internal threshold is reached.
+      const emit = (obj: object) => {
+        const json = JSON.stringify(obj)
+        const pad = Math.max(0, 4096 - json.length - 1)
+        controller.enqueue(encoder.encode(json + ' '.repeat(pad) + '\n'))
+      }
 
       // Categories and their JSON key markers — used to detect semantic progress
       // as Claude streams the output JSON. Each entry is the key Claude writes
