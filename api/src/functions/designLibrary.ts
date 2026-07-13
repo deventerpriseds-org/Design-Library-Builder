@@ -261,11 +261,46 @@ async function extractHandler(req: HttpRequest, context: InvocationContext): Pro
     async start(controller) {
       const emit = (obj: object) => controller.enqueue(encoder.encode(JSON.stringify(obj) + '\n'))
 
+      // Categories and their JSON key markers — used to detect semantic progress
+      // as Claude streams the output JSON. Each entry is the key Claude writes
+      // when it starts that section of the output.
       const CATEGORIES = ['primitives', 'color-tokens', 'spacing-tokens', 'motion-tokens', 'typography', 'text-styles', 'effect-styles', 'grid-styles', 'components', 'patterns', 'finalizing']
-      let catIdx = 0
+      const CAT_MARKERS: Record<string, string[]> = {
+        'primitives':      ['"variables"', '"Primitives"', '"primitives"'],
+        'color-tokens':    ['"Color"', '"color-tokens"', '"colorTokens"'],
+        'spacing-tokens':  ['"Spacing"', '"spacing"', '"spacingTokens"'],
+        'motion-tokens':   ['"Motion"', '"motion"', '"motionTokens"'],
+        'typography':      ['"Typography"', '"typography"', '"typographyPrimitives"'],
+        'text-styles':     ['"textStyles"', '"text-styles"'],
+        'effect-styles':   ['"effectStyles"', '"effect-styles"'],
+        'grid-styles':     ['"gridStyles"', '"grid-styles"'],
+        'components':      ['"components"'],
+        'patterns':        ['"patterns"'],
+        'finalizing':      ['"meta"'],
+      }
+
+      const completed = new Set<string>()
+      let activeCat = 'primitives'
+
+      function advanceProgress(chunk: string) {
+        for (const [cat, markers] of Object.entries(CAT_MARKERS)) {
+          if (completed.has(cat)) continue
+          if (markers.some(m => chunk.includes(m))) {
+            // Mark previous active category done before moving to this one
+            if (activeCat !== cat && !completed.has(activeCat)) {
+              completed.add(activeCat)
+              emit({ type: 'progress', category: activeCat, message: `${activeCat} extracted`, done: true })
+            }
+            activeCat = cat
+            emit({ type: 'progress', category: cat, message: `Extracting ${cat}…` })
+            break
+          }
+        }
+      }
 
       try {
-        emit({ type: 'progress', category: 'primitives', message: 'Sending to Claude…' })
+        emit({ type: 'progress', category: 'primitives', message: 'Connecting to Claude…' })
+        emit({ type: 'heartbeat', ts: Date.now() })
 
         const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
@@ -289,10 +324,14 @@ async function extractHandler(req: HttpRequest, context: InvocationContext): Pro
           controller.close(); return
         }
 
+        emit({ type: 'progress', category: 'primitives', message: 'Claude is analysing your design…' })
+
         const reader = anthropicRes.body!.getReader()
         const dec = new TextDecoder()
         let sseBuf = ''
         let jsonBuf = ''
+        let tokenCount = 0
+        let lastHeartbeat = Date.now()
 
         while (true) {
           const { done, value } = await reader.read()
@@ -308,30 +347,51 @@ async function extractHandler(req: HttpRequest, context: InvocationContext): Pro
             try {
               const evt = JSON.parse(data)
               if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
-                jsonBuf += evt.delta.text
-                if (jsonBuf.length % 500 < 10 && catIdx < CATEGORIES.length) {
-                  emit({ type: 'progress', category: CATEGORIES[catIdx], message: `Extracting ${CATEGORIES[catIdx]}…` })
-                  if (catIdx < CATEGORIES.length - 1) catIdx++
+                const chunk = evt.delta.text
+                jsonBuf += chunk
+                tokenCount++
+                advanceProgress(jsonBuf)
+                // Heartbeat every 3s so the frontend knows we're alive
+                const now = Date.now()
+                if (now - lastHeartbeat > 3000) {
+                  emit({ type: 'heartbeat', ts: now, tokens: tokenCount })
+                  lastHeartbeat = now
                 }
               }
-            } catch { /* partial */ }
+            } catch { /* partial SSE line */ }
           }
         }
 
-        for (const cat of CATEGORIES) emit({ type: 'progress', category: cat, message: `${cat} complete`, done: true })
+        // Mark any remaining categories done
+        for (const cat of CATEGORIES) {
+          if (!completed.has(cat)) {
+            emit({ type: 'progress', category: cat, message: `${cat} extracted`, done: true })
+          }
+        }
+
+        emit({ type: 'progress', category: 'finalizing', message: 'Parsing result…' })
 
         let result: any = null
         try {
           const clean = jsonBuf.replace(/^```json?\s*/i, '').replace(/```\s*$/, '').trim()
           result = JSON.parse(clean)
         } catch (e) {
-          emit({ type: 'progress', category: 'error', message: `JSON parse failed: ${(e as Error).message}`, done: true })
-          controller.close(); return
+          // Try to extract JSON from within the buffer if Claude wrapped it
+          const jsonMatch = jsonBuf.match(/\{[\s\S]*\}/)
+          if (jsonMatch) {
+            try { result = JSON.parse(jsonMatch[0]) } catch {}
+          }
+          if (!result) {
+            emit({ type: 'progress', category: 'error', message: `JSON parse failed: ${(e as Error).message}`, done: true })
+            emit({ type: 'debug', raw: jsonBuf.slice(0, 500) })
+            controller.close(); return
+          }
         }
 
         if (!result.meta) result.meta = {}
         result.meta.name = result.meta.name || name || 'Design System'
         result.meta.extractedAt = new Date().toISOString()
+        result.meta.tokenCount = tokenCount
 
         emit({ type: 'result', data: result })
       } catch (e) {

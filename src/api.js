@@ -39,7 +39,7 @@ export async function extractDesign({ name, primaryColor, images, urls, descript
       if (!line.trim()) continue
       try {
         const event = JSON.parse(line)
-        if (event.type === 'progress') onChunk?.(event)
+        if (event.type === 'progress' || event.type === 'heartbeat') onChunk?.(event)
         if (event.type === 'result') result = event.data
       } catch { /* partial line */ }
     }
