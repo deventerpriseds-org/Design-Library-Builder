@@ -63,7 +63,7 @@ export default function Upload() {
       {/* Project name + color hint */}
       <div className="dlg-card" style={{ padding: 20, marginBottom: 20 }}>
         <div className="t-h3" style={{ marginBottom: 16 }}>Project Details</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
           <div>
             <label className="t-label" style={{ display: 'block', marginBottom: 6, color: 'var(--dlg-text-2)' }}>Project Name</label>
             <input className="dlg-input" placeholder="e.g. Compass, Executive Engine…"

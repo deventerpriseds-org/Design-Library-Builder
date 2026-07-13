@@ -2,43 +2,121 @@ import React, { useState } from 'react'
 import { useApp, go } from '../state.jsx'
 import { saveDesignSystem } from '../api.js'
 
+function cssVar(name) {
+  return `--${name.replace(/[\s./]/g, '-')}`
+}
+
 function buildCSS(result) {
   const lines = ['/* Generated Design System CSS Custom Properties */\n:root {']
-  const prims = result?.variables?.collections?.Primitives
-  if (Array.isArray(prims)) {
-    prims.forEach((v) => { lines.push(`  --${v.name.replace(/\./g, '-')}: ${v.value};`) })
+  const cols = result?.variables?.collections || {}
+
+  const primitives = cols['Primitives'] || []
+  if (primitives.length) {
+    lines.push('\n  /* Primitives */')
+    primitives.forEach((v) => {
+      const val = v.value != null ? v.value : ''
+      lines.push(`  ${cssVar(v.name)}: ${val};`)
+    })
   }
-  const tokens = result?.variables?.collections?.Tokens
-  if (Array.isArray(tokens)) {
-    tokens.forEach((t) => { lines.push(`  --${t.name.replace(/\./g, '-')}: ${t.lightValue || t.value || 'inherit'};`) })
+
+  const spacing = cols['Spacing'] || []
+  if (spacing.length) {
+    lines.push('\n  /* Spacing & Radius */')
+    spacing.forEach((v) => { lines.push(`  ${cssVar(v.name)}: ${v.value != null ? v.value : ''};`) })
   }
+
+  const typPrims = cols['Typography Primitives'] || cols['Typography'] || []
+  if (typPrims.length) {
+    lines.push('\n  /* Typography */')
+    typPrims.filter((v) => v.resolvedType === 'STRING' || v.resolvedType === 'FLOAT').forEach((v) => {
+      lines.push(`  ${cssVar(v.name)}: ${v.value != null ? v.value : ''};`)
+    })
+  }
+
+  const motion = cols['Motion'] || []
+  if (motion.length) {
+    lines.push('\n  /* Motion */')
+    motion.forEach((v) => { lines.push(`  ${cssVar(v.name)}: ${v.value != null ? v.value : ''};`) })
+  }
+
+  const colorTokens = cols['Color'] || cols['Tokens'] || []
+  const lightTokens = colorTokens.filter((t) => t.lightValue || t.value)
+  if (lightTokens.length) {
+    lines.push('\n  /* Semantic color tokens — light */')
+    lightTokens.forEach((t) => { lines.push(`  ${cssVar(t.name)}: ${t.lightValue || t.value};`) })
+  }
+
+  const componentTokens = cols['Component Tokens'] || []
+  if (componentTokens.length) {
+    lines.push('\n  /* Component tokens */')
+    componentTokens.forEach((t) => { lines.push(`  ${cssVar(t.name)}: ${t.lightValue || t.value || 'inherit'};`) })
+  }
+
   lines.push('}')
-  if (Array.isArray(tokens) && tokens.some((t) => t.darkValue)) {
+
+  const darkTokens = [...colorTokens, ...componentTokens].filter((t) => t.darkValue)
+  if (darkTokens.length) {
     lines.push('\n[data-theme="dark"] {')
-    tokens.filter((t) => t.darkValue).forEach((t) => { lines.push(`  --${t.name.replace(/\./g, '-')}: ${t.darkValue};`) })
+    darkTokens.forEach((t) => { lines.push(`  ${cssVar(t.name)}: ${t.darkValue};`) })
     lines.push('}')
   }
+
   return lines.join('\n')
 }
 
 function buildTS(result) {
   const lines = ['// Generated Design System TypeScript Constants\n']
-  const prims = result?.variables?.collections?.Primitives
-  if (Array.isArray(prims)) {
-    const colorPrims = prims.filter((v) => v.type === 'color' || v.resolvedType === 'COLOR')
-    if (colorPrims.length) {
-      lines.push('export const colors = {')
-      colorPrims.forEach((v) => { lines.push(`  '${v.name}': '${v.value}',`) })
-      lines.push('}\n')
-    }
-  }
-  const styles = result?.styles?.text || []
-  if (styles.length) {
-    lines.push('export const textStyles = {')
-    styles.forEach((s) => { lines.push(`  '${s.name}': { fontFamily: '${s.fontFamily}', fontSize: ${s.fontSize}, fontWeight: ${s.fontWeight} },`) })
+  const cols = result?.variables?.collections || {}
+
+  const primitives = (cols['Primitives'] || []).filter((v) => v.resolvedType === 'COLOR')
+  if (primitives.length) {
+    lines.push('/** Raw color palette — use semantic tokens in components, not these directly */')
+    lines.push('export const colorPrimitives: Record<string, string> = {')
+    primitives.forEach((v) => { lines.push(`  '${v.name}': '${v.value}',`) })
     lines.push('}\n')
   }
-  lines.push('export const components = ', JSON.stringify(result?.components || [], null, 2))
+
+  const spacing = cols['Spacing'] || []
+  if (spacing.length) {
+    lines.push('export const spacing: Record<string, number | string> = {')
+    spacing.forEach((v) => { lines.push(`  '${v.name}': ${JSON.stringify(v.value)},`) })
+    lines.push('}\n')
+  }
+
+  const motion = cols['Motion'] || []
+  if (motion.length) {
+    lines.push('export const motion: Record<string, number | string> = {')
+    motion.forEach((v) => { lines.push(`  '${v.name}': ${JSON.stringify(v.value)},`) })
+    lines.push('}\n')
+  }
+
+  const colorTokens = cols['Color'] || cols['Tokens'] || []
+  if (colorTokens.length) {
+    lines.push('/** Semantic color tokens — reference CSS vars in production code */')
+    lines.push('export const colorTokens: Array<{ name: string; light: string; dark?: string; scopes: string[] }> = [')
+    colorTokens.forEach((t) => {
+      lines.push(`  { name: '${t.name}', light: '${t.lightValue || t.value || ''}', dark: ${JSON.stringify(t.darkValue || null)}, scopes: ${JSON.stringify(t.scopes || [])} },`)
+    })
+    lines.push(']\n')
+  }
+
+  const styles = result?.styles?.text || []
+  if (styles.length) {
+    lines.push('export const textStyles: Record<string, { fontFamily: string; fontStyle: string; fontSize: number; fontWeight: number; lineHeight: { value: number; unit: string }; letterSpacing: { value: number; unit: string } }> = {')
+    styles.forEach((s) => {
+      const lh = s.lineHeight || { value: 1.5, unit: 'AUTO' }
+      const ls = s.letterSpacing || { value: 0, unit: 'PIXELS' }
+      lines.push(`  '${s.name}': { fontFamily: '${s.fontFamily || ''}', fontStyle: '${s.fontStyle || 'Regular'}', fontSize: ${s.fontSize || 16}, fontWeight: ${s.fontWeight || 400}, lineHeight: ${JSON.stringify(lh)}, letterSpacing: ${JSON.stringify(ls)} },`)
+    })
+    lines.push('}\n')
+  }
+
+  lines.push('export const components = ' + JSON.stringify(result?.components || [], null, 2))
+
+  if ((result?.patterns || []).length) {
+    lines.push('\nexport const patterns = ' + JSON.stringify(result.patterns, null, 2))
+  }
+
   return lines.join('\n')
 }
 
@@ -74,7 +152,7 @@ function buildHandoffPrompt(result) {
   const primary = result?.meta?.primaryColor || '#1B4F5C'
   const fonts = [...new Set((result?.styles?.text || []).map((t) => t.fontFamily).filter(Boolean))].join(', ') || 'Inter'
   const compCount = result?.components?.length || 0
-  const tokenCount = (result?.variables?.collections?.Tokens || []).length
+  const tokenCount = Object.values(result?.variables?.collections || {}).reduce((s, a) => s + (Array.isArray(a) ? a.length : 0), 0)
   return `Build "${name}" from scratch using the attached SPEC.md as the single source of truth.
 
 Tech stack:

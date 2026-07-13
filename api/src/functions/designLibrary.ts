@@ -14,9 +14,10 @@ const JSON_H = { 'Content-Type': 'application/json', ...CORS }
 const STREAM_H = { 'Content-Type': 'application/x-ndjson', 'Transfer-Encoding': 'chunked', ...CORS }
 
 // ── Extraction prompt ────────────────────────────────────────────────────────
-const SYSTEM_PROMPT = `You are a design system extraction expert. Given screenshots, URLs, and descriptions of an app, you extract a complete Figma design library specification.
+const SYSTEM_PROMPT = `You are a design system extraction expert. Given screenshots, URLs, and descriptions of an app, extract a COMPLETE Figma design library specification. Every value must use Figma Plugin API naming exactly so the output JSON can be consumed by a Figma plugin without modification.
 
-Your output MUST be a JSON object matching EXACTLY this schema:
+Output a single JSON object matching this schema. Populate every section as thoroughly as possible.
+
 {
   "meta": {
     "name": string,
@@ -24,58 +25,211 @@ Your output MUST be a JSON object matching EXACTLY this schema:
     "bgColor": string (hex),
     "textColor": string (hex),
     "borderColor": string (hex),
-    "buttonRadius": number (px),
-    "cardRadius": number (px),
-    "sidebarWidth": number (px),
+    "buttonRadius": number,
+    "cardRadius": number,
+    "sidebarWidth": number,
     "fontFamily": string,
     "extractedAt": string (ISO)
   },
   "variables": {
     "collections": {
       "Primitives": [
-        { "name": string, "value": string, "type": "color"|"number"|"string", "resolvedType": "COLOR"|"FLOAT"|"STRING" }
+        {
+          "name": string (slash-separated path, e.g. "blue/500", "gray/100", "white/1000"),
+          "value": string (hex for colors, number as string for floats),
+          "resolvedType": "COLOR"|"FLOAT"|"STRING"|"BOOLEAN",
+          "scopes": [] (empty array — primitives are always hidden from pickers)
+        }
       ],
-      "Tokens": [
-        { "name": string, "lightValue": string, "darkValue": string, "type": string, "resolvedType": string }
+      "Color": [
+        {
+          "name": string (e.g. "color/bg/default", "color/text/brand", "color/border/default"),
+          "lightValue": string (hex or alias path like "Primitives/blue/500"),
+          "darkValue": string,
+          "resolvedType": "COLOR",
+          "scopes": ["FRAME_FILL"|"SHAPE_FILL"|"TEXT_FILL"|"STROKE_COLOR"|"EFFECT_COLOR"] (array, pick applicable ones),
+          "cssVar": string (e.g. "var(--color-bg-default)")
+        }
+      ],
+      "Spacing": [
+        {
+          "name": string (e.g. "spacing/xs", "spacing/sm", "radius/md", "border-width/default", "opacity/60", "z-index/modal", "icon-size/md"),
+          "value": number,
+          "resolvedType": "FLOAT",
+          "scopes": ["GAP"|"CORNER_RADIUS"|"WIDTH_HEIGHT"|"STROKE_FLOAT"|"OPACITY"|"EFFECT_FLOAT"] (single most appropriate scope),
+          "cssVar": string (e.g. "var(--spacing-sm)")
+        }
+      ],
+      "Typography": [
+        {
+          "name": string (e.g. "font/family/sans", "font/family/mono", "font/weight/medium", "font/size/md"),
+          "value": string|number,
+          "resolvedType": "STRING"|"FLOAT",
+          "scopes": ["FONT_FAMILY"|"FONT_STYLE"|"FONT_SIZE"|"LINE_HEIGHT"|"LETTER_SPACING"|"FONT_WEIGHT"],
+          "cssVar": string
+        }
+      ],
+      "Motion": [
+        {
+          "name": string (e.g. "motion/duration/fast", "motion/duration/normal", "motion/easing/ease-out"),
+          "value": string|number (ms as number for durations, string for easing names),
+          "resolvedType": "FLOAT"|"STRING",
+          "cssVar": string (e.g. "var(--motion-duration-fast)")
+        }
       ],
       "Component Tokens": [
-        { "name": string, "value": string, "component": string, "property": string }
+        {
+          "name": string (e.g. "button/bg/primary", "input/border/default", "card/radius"),
+          "value": string (alias to Color or Spacing collection, e.g. "Color/color/bg/brand"),
+          "component": string,
+          "property": string,
+          "cssVar": string
+        }
       ]
     }
   },
   "styles": {
     "text": [
-      { "name": string, "fontFamily": string, "fontSize": number, "fontWeight": number, "lineHeight": number, "letterSpacing": number, "usage": string }
+      {
+        "name": string (Figma slash-group path, e.g. "Display/Hero", "Heading/H1", "Body/Medium", "Label/Small", "Code/Base", "Overline", "Caption"),
+        "fontFamily": string (e.g. "Inter"),
+        "fontStyle": string (EXACT Figma fontName.style string: "Regular"|"Medium"|"Semi Bold"|"Bold"|"Italic"|"Bold Italic"),
+        "fontSize": number,
+        "fontWeight": number,
+        "lineHeight": { "value": number, "unit": "PIXELS"|"PERCENT"|"AUTO" },
+        "letterSpacing": { "value": number, "unit": "PIXELS"|"PERCENT" },
+        "usage": string
+      }
     ],
     "color": [
-      { "name": string, "color": string, "usage": string }
+      { "name": string, "color": string (hex), "usage": string }
     ],
     "effects": [
-      { "name": string, "type": "drop-shadow"|"inner-shadow"|"blur"|"background-blur", "value": string, "css": string }
+      {
+        "name": string (e.g. "Shadow/Subtle", "Shadow/Medium", "Shadow/Strong", "Shadow/XL", "Inner/SM", "Blur/Background", "Elevation/1"),
+        "type": "DROP_SHADOW"|"INNER_SHADOW"|"LAYER_BLUR"|"BACKGROUND_BLUR",
+        "color": string (rgba, e.g. "rgba(0,0,0,0.05)"),
+        "offsetX": number,
+        "offsetY": number,
+        "blur": number,
+        "spread": number,
+        "css": string (full CSS box-shadow or filter value)
+      }
     ],
     "grids": [
-      { "name": string, "type": "columns"|"rows"|"grid", "count": number, "gutter": number, "margin": number }
+      {
+        "name": string (e.g. "Desktop 12-col", "Tablet 8-col", "Mobile 4-col", "Baseline/8px", "Micro/4px"),
+        "pattern": "COLUMNS"|"ROWS"|"GRID",
+        "breakpoint": number (px),
+        "count": number (number of columns/rows),
+        "gutter": number (px),
+        "margin": number (px),
+        "sectionSize": number (px, for ROWS/GRID patterns — the row height or cell size)
+      }
     ]
   },
   "components": [
     {
       "name": string,
-      "category": string,
-      "variants": string[],
-      "variantProperties": { [key: string]: string[] },
-      "componentProperties": { [key: string]: { type: "TEXT"|"BOOLEAN"|"INSTANCE_SWAP", default: string } },
-      "tokenBindings": string[],
-      "styleBindings": string[]
+      "category": "Iconography"|"Atoms"|"Actions"|"Form Controls"|"Navigation"|"Feedback"|"Overlays"|"Data Display"|"Media"|"Layout"|"Patterns",
+      "tier": "atom"|"molecule"|"organism"|"pattern",
+      "description": string,
+      "variants": string[] (style variant labels, e.g. ["Primary","Secondary","Ghost","Danger"]),
+      "states": string[] (e.g. ["Default","Hover","Focused","Pressed","Disabled","Loading"]),
+      "sizes": string[] (e.g. ["XS","S","M","L","XL"]),
+      "variantProperties": { [axisName: string]: string[] },
+      "componentProperties": {
+        [propName: string]: { "type": "TEXT"|"BOOLEAN"|"INSTANCE_SWAP", "default": string }
+      },
+      "tokenBindings": string[] (list of token names this component uses, e.g. ["color/bg/brand","spacing/md","radius/md"]),
+      "styleBindings": string[] (list of style names, e.g. ["Shadow/Subtle","Body/Medium"])
+    }
+  ],
+  "patterns": [
+    {
+      "name": string (e.g. "Login Form", "Dashboard Layout", "Data Table with Filters", "Empty State Page"),
+      "description": string,
+      "components": string[] (component names used in this pattern)
     }
   ]
 }
 
-Extract EVERY component visible. Minimum expected components: Button, Input, Card, Badge, Modal/Dialog, Navbar/Header, Sidebar/Nav, Table/List, Tabs, Dropdown/Select, Avatar, Alert/Banner, Tooltip, Chip/Pill, Icon, Spinner/Loader.
+EXTRACTION RULES:
 
-For colors: extract exact hex values when visible, otherwise infer from context.
-For typography: extract every distinct text style visible. Always include Display, H1, H2, H3, Body, Body SM, Caption, Label, Overline, Code.
+PRIMITIVES — extract full palette:
+Every color stop visible or inferable: blue/100 through blue/900, gray/100 through gray/900, white/1000, black/1000, plus brand/accent/semantic palette stops. All scopes must be [] (empty).
 
-Respond ONLY with the JSON object. No markdown, no explanation.`
+SPACING COLLECTION — always include all of these, using standard values if not visible:
+spacing/xs=4, spacing/sm=8, spacing/md=16, spacing/lg=24, spacing/xl=32, spacing/2xl=48, spacing/3xl=64 (scope: GAP)
+radius/none=0, radius/xs=2, radius/sm=4, radius/md=8, radius/lg=16, radius/xl=24, radius/full=9999 (scope: CORNER_RADIUS)
+border-width/thin=1, border-width/default=2, border-width/thick=4 (scope: STROKE_FLOAT)
+opacity/0=0, opacity/10=10, opacity/20=20, opacity/40=40, opacity/60=60, opacity/80=80, opacity/100=100 (scope: OPACITY)
+icon-size/xs=12, icon-size/sm=16, icon-size/md=20, icon-size/lg=24, icon-size/xl=32 (scope: WIDTH_HEIGHT)
+z-index/base=0, z-index/dropdown=100, z-index/sticky=200, z-index/overlay=300, z-index/modal=400, z-index/toast=500 (scope: WIDTH_HEIGHT)
+
+MOTION COLLECTION — always include:
+motion/duration/instant=0, motion/duration/fast=100, motion/duration/normal=200, motion/duration/slow=400, motion/duration/slower=600 (resolvedType: FLOAT)
+motion/easing/linear="linear", motion/easing/ease-in="ease-in", motion/easing/ease-out="ease-out", motion/easing/ease-in-out="ease-in-out", motion/easing/spring="cubic-bezier(0.34,1.56,0.64,1)" (resolvedType: STRING)
+
+TEXT STYLES — always include all of these (infer size/weight from context, use Inter as default font):
+Display/Hero: fontStyle="Bold" fontSize=72 lineHeight={value:80,unit:"PIXELS"} letterSpacing={value:-1.5,unit:"PIXELS"}
+Heading/H1: fontStyle="Bold" fontSize=48 lineHeight={value:56,unit:"PIXELS"} letterSpacing={value:-1,unit:"PIXELS"}
+Heading/H2: fontStyle="Bold" fontSize=40 lineHeight={value:48,unit:"PIXELS"} letterSpacing={value:-0.5,unit:"PIXELS"}
+Heading/H3: fontStyle="Semi Bold" fontSize=32 lineHeight={value:40,unit:"PIXELS"} letterSpacing={value:0,unit:"PIXELS"}
+Heading/H4: fontStyle="Semi Bold" fontSize=24 lineHeight={value:32,unit:"PIXELS"} letterSpacing={value:0,unit:"PIXELS"}
+Heading/H5: fontStyle="Medium" fontSize=20 lineHeight={value:28,unit:"PIXELS"} letterSpacing={value:0,unit:"PIXELS"}
+Heading/H6: fontStyle="Medium" fontSize=16 lineHeight={value:24,unit:"PIXELS"} letterSpacing={value:0,unit:"PIXELS"}
+Body/Large: fontStyle="Regular" fontSize=18 lineHeight={value:28,unit:"PIXELS"}
+Body/Medium: fontStyle="Regular" fontSize=16 lineHeight={value:24,unit:"PIXELS"}
+Body/Small: fontStyle="Regular" fontSize=14 lineHeight={value:20,unit:"PIXELS"}
+Body/XSmall: fontStyle="Regular" fontSize=12 lineHeight={value:16,unit:"PIXELS"}
+Label/Large: fontStyle="Medium" fontSize=14 lineHeight={value:20,unit:"PIXELS"} letterSpacing={value:0.1,unit:"PIXELS"}
+Label/Medium: fontStyle="Medium" fontSize=12 lineHeight={value:16,unit:"PIXELS"} letterSpacing={value:0.5,unit:"PIXELS"}
+Label/Small: fontStyle="Medium" fontSize=11 lineHeight={value:16,unit:"PIXELS"} letterSpacing={value:0.5,unit:"PIXELS"}
+Code/Base: fontFamily="Roboto Mono" fontStyle="Regular" fontSize=14 lineHeight={value:20,unit:"PIXELS"}
+Code/Small: fontFamily="Roboto Mono" fontStyle="Regular" fontSize=12 lineHeight={value:16,unit:"PIXELS"}
+Overline: fontStyle="Medium" fontSize=11 lineHeight={value:16,unit:"PIXELS"} letterSpacing={value:1.5,unit:"PIXELS"}
+Caption: fontStyle="Regular" fontSize=12 lineHeight={value:16,unit:"PIXELS"}
+Override any of the above with observed values from the screenshots.
+
+EFFECT STYLES — always include (use standard CSS values if not visible):
+Shadow/Subtle: type=DROP_SHADOW offsetY=1 blur=2 spread=0 color="rgba(0,0,0,0.05)"
+Shadow/Small: type=DROP_SHADOW offsetY=2 blur=4 spread=0 color="rgba(0,0,0,0.08)"
+Shadow/Medium: type=DROP_SHADOW offsetY=4 blur=8 spread=-1 color="rgba(0,0,0,0.10)"
+Shadow/Strong: type=DROP_SHADOW offsetY=8 blur=16 spread=-2 color="rgba(0,0,0,0.12)"
+Shadow/XL: type=DROP_SHADOW offsetY=16 blur=32 spread=-4 color="rgba(0,0,0,0.14)" (modals/dialogs)
+Shadow/2XL: type=DROP_SHADOW offsetY=24 blur=48 spread=-6 color="rgba(0,0,0,0.18)" (drawers)
+Inner/SM: type=INNER_SHADOW offsetY=1 blur=2 spread=0 color="rgba(0,0,0,0.06)"
+Inner/MD: type=INNER_SHADOW offsetY=2 blur=4 spread=0 color="rgba(0,0,0,0.08)"
+Blur/Background: type=BACKGROUND_BLUR blur=16 (frosted glass overlays)
+Blur/Layer: type=LAYER_BLUR blur=8 (content blur)
+Add Elevation/1 through Elevation/3 if M3-style naming is appropriate for this design.
+
+GRID STYLES — always include all breakpoints:
+Desktop 12-col: pattern=COLUMNS breakpoint=1440 count=12 gutter=24 margin=80
+Laptop 12-col: pattern=COLUMNS breakpoint=1280 count=12 gutter=24 margin=64
+Tablet 12-col: pattern=COLUMNS breakpoint=1024 count=12 gutter=20 margin=40
+Tablet 8-col: pattern=COLUMNS breakpoint=768 count=8 gutter=20 margin=24
+Mobile 4-col: pattern=COLUMNS breakpoint=375 count=4 gutter=16 margin=16
+Baseline/8px: pattern=ROWS sectionSize=8
+Micro/4px: pattern=ROWS sectionSize=4
+
+COMPONENTS — extract ALL of the following (plus any additional ones visible):
+Iconography: Icon, Pictogram
+Atoms: Color Swatch, Typography Specimen, Avatar, Badge, Tag/Chip, Divider, Spinner, Skeleton
+Actions: Button, Icon Button, Button Group, Segmented Control, Split Button, FAB
+Form Controls: Text Input, Textarea, Password Input, Search Input, Number Stepper, Select, Multi-Select, Combobox, Checkbox, Radio Button, Radio Group, Toggle/Switch, Slider, Range Slider, Date Picker, Time Picker, Date Range Picker, File Upload, Color Picker, Rating, OTP/PIN Input, Form Field
+Navigation: Top Navigation/App Bar, Side Navigation, Bottom Navigation, Breadcrumb, Tabs, Stepper/Wizard, Pagination, Page Header, Section Header, Dropdown Menu, Menu Item, Context Menu, Command Palette
+Feedback: Alert/Banner, Toast/Snackbar, Inline Message
+Overlays: Modal/Dialog, Drawer/Sheet, Confirmation Dialog, Tooltip, Popover
+Data Display: Card, List Item, Accordion, Table, Data Grid, Timeline, Tree View, Stat/KPI Card, Chart Placeholder, Chart Legend, Chart Tooltip
+Media: Image, Video/Media Placeholder, Code Block, Carousel, Map Placeholder, Rich Text
+Layout: Container, Section, Grid, Row, Column, Responsive Frame
+Patterns: Login/Auth Screen, Dashboard Layout, Data Table + Filters, Form with Validation, Empty State Page, Error Page
+
+For each component: include all applicable variant axes, states, sizes, component properties (TEXT/BOOLEAN/INSTANCE_SWAP), and token/style bindings.
+
+Respond ONLY with the JSON object. No markdown fences, no explanation.`
 
 // ── Extract endpoint ─────────────────────────────────────────────────────────
 async function extractHandler(req: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
@@ -107,11 +261,11 @@ async function extractHandler(req: HttpRequest, context: InvocationContext): Pro
     async start(controller) {
       const emit = (obj: object) => controller.enqueue(encoder.encode(JSON.stringify(obj) + '\n'))
 
-      const CATEGORIES = ['colors', 'typography', 'spacing', 'tokens', 'components', 'effects', 'grids', 'finalizing']
+      const CATEGORIES = ['primitives', 'color-tokens', 'spacing-tokens', 'motion-tokens', 'typography', 'text-styles', 'effect-styles', 'grid-styles', 'components', 'patterns', 'finalizing']
       let catIdx = 0
 
       try {
-        emit({ type: 'progress', category: 'colors', message: 'Sending to Claude…' })
+        emit({ type: 'progress', category: 'primitives', message: 'Sending to Claude…' })
 
         const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
