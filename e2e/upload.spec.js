@@ -25,10 +25,11 @@ test.describe('Upload screen', () => {
   })
 
   test('can add and remove a URL', async ({ page }) => {
-    await page.getByPlaceholder('https://…').fill('https://example.com')
+    await page.locator('input[placeholder="https://…"]').fill('https://example.com')
     await page.getByRole('button', { name: 'Add' }).click()
     await expect(page.getByText('https://example.com')).toBeVisible()
-    await page.getByRole('button', { name: '×' }).first().click()
+    // Remove button uses × character — click by text content
+    await page.locator('button', { hasText: '×' }).first().click()
     await expect(page.getByText('https://example.com')).not.toBeVisible()
   })
 

@@ -20,7 +20,8 @@ test.describe('Shell navigation — mobile', () => {
     await page.goto('/#/upload')
     const hamburger = page.getByRole('button', { name: /☰|menu/i })
     await hamburger.click()
-    await expect(page.getByText('Upload')).toBeVisible()
+    // Use the nav link role to avoid matching body text that also contains "Upload"
+    await expect(page.getByRole('button', { name: /Upload/i }).first()).toBeVisible()
     await hamburger.click()
   })
 })
