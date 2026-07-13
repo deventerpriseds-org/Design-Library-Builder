@@ -82,7 +82,8 @@ jobs:
                 --query "spa.redirectUris" -o tsv 2>/dev/null | tr '\n' ' ')
               ALL_URIS="$ALL_URIS $REDIRECT"
               az ad app update --id "${{ steps.msid.outputs.client_id }}" \
-                --spa-redirect-uris $ALL_URIS 2>/dev/null || true
+                --spa-redirect-uris $ALL_URIS \
+              && echo "Registered OK" || echo "WARNING: az ad app update failed — add $REDIRECT manually in Azure Portal → Entra → App registrations → Authentication → Single-page application"
             fi
           fi
 
