@@ -256,6 +256,60 @@ function extractUserId(req: HttpRequest): string | null {
   } catch { return null }
 }
 
+// ── Auth session stub (Microsoft access token → session token) ────────────────
+// The front-end optionally calls this; return a simple echo token so the client
+// stores the user's email without a full token exchange infrastructure.
+async function authSessionHandler(req: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
+  if (req.method === 'OPTIONS') return { status: 204, headers: CORS }
+  let body: any
+  try { body = await req.json() } catch { return { status: 400, headers: JSON_H, jsonBody: { error: 'Invalid JSON' } } }
+  const { msAccessToken } = body as any
+  if (!msAccessToken) return { status: 400, headers: JSON_H, jsonBody: { error: 'msAccessToken required' } }
+  // Decode email from the access token without verification (internal use only)
+  let email: string | null = null
+  try {
+    const payload = JSON.parse(Buffer.from(msAccessToken.split('.')[1], 'base64url').toString())
+    email = payload.upn || payload.email || payload.preferred_username || null
+  } catch {}
+  const token = Buffer.from(JSON.stringify({ sub: email || 'ms-user', email, iat: Date.now() })).toString('base64url')
+  return { status: 200, headers: JSON_H, jsonBody: { token, email } }
+}
+
+// ── Google OAuth token exchange ───────────────────────────────────────────────
+async function authGoogleTokenHandler(req: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
+  if (req.method === 'OPTIONS') return { status: 204, headers: CORS }
+  const GCLIENT_ID = process.env.GOOGLE_CLIENT_ID || ''
+  const GCLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || ''
+  if (!GCLIENT_ID || !GCLIENT_SECRET) {
+    return { status: 500, headers: JSON_H, jsonBody: { error: 'Google OAuth not configured on server' } }
+  }
+  let body: any
+  try { body = await req.json() } catch { return { status: 400, headers: JSON_H, jsonBody: { error: 'Invalid JSON' } } }
+  const { code, redirectUri } = body as any
+  if (!code || !redirectUri) return { status: 400, headers: JSON_H, jsonBody: { error: 'code and redirectUri required' } }
+  try {
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ code, client_id: GCLIENT_ID, client_secret: GCLIENT_SECRET, redirect_uri: redirectUri, grant_type: 'authorization_code' }),
+    })
+    if (!tokenRes.ok) {
+      const e = await tokenRes.json().catch(() => ({})) as any
+      return { status: 400, headers: JSON_H, jsonBody: { error: e?.error_description || `Google token exchange ${tokenRes.status}` } }
+    }
+    const { id_token } = await tokenRes.json() as any
+    let email = '', displayName = ''
+    try {
+      const p = JSON.parse(Buffer.from(id_token.split('.')[1], 'base64url').toString())
+      email = p.email || ''; displayName = p.name || email
+    } catch {}
+    const token = Buffer.from(JSON.stringify({ sub: email, email, iat: Date.now() })).toString('base64url')
+    return { status: 200, headers: JSON_H, jsonBody: { token, email, displayName } }
+  } catch (e) {
+    return { status: 500, headers: JSON_H, jsonBody: { error: (e as Error).message } }
+  }
+}
+
 // ── Route registrations ───────────────────────────────────────────────────────
 app.http('health', {
   methods: ['GET', 'OPTIONS'],
@@ -283,4 +337,18 @@ app.http('designLibraryList', {
   authLevel: 'anonymous',
   route: 'design-library/saved',
   handler: listHandler,
+})
+
+app.http('authSession', {
+  methods: ['POST', 'OPTIONS'],
+  authLevel: 'anonymous',
+  route: 'auth/session',
+  handler: authSessionHandler,
+})
+
+app.http('authGoogleToken', {
+  methods: ['POST', 'OPTIONS'],
+  authLevel: 'anonymous',
+  route: 'auth/google/token',
+  handler: authGoogleTokenHandler,
 })

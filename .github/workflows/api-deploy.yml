@@ -81,6 +81,13 @@ jobs:
               "GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}" \
               "NODE_ENV=production"
 
+      - name: Configure platform CORS
+        run: |
+          az functionapp cors add \
+            --name $FUNCTION_APP_NAME \
+            --resource-group $RESOURCE_GROUP \
+            --allowed-origins "*" 2>/dev/null || true
+
       - name: Create deployment zip
         run: |
           cd api
