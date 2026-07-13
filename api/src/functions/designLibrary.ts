@@ -488,7 +488,8 @@ app.http('designLibraryExtract', {
   authLevel: 'anonymous',
   route: 'design-library/extract',
   handler: extractHandler,
-})
+  stream: true,
+} as any)
 
 app.http('designLibrarySave', {
   methods: ['POST', 'OPTIONS'],
