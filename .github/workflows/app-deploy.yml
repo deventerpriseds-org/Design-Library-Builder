@@ -116,4 +116,5 @@ jobs:
           skip_app_build: true
 
       - name: Print app URL
-        run: echo "✓ App deployed: https://${{ steps.swa.outputs.hostname }}"
+        run: |
+          echo "App deployed: https://${{ steps.swa.outputs.hostname }}"
