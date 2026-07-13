@@ -60,3 +60,32 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
+
+  adoption:
+    name: ZeroHeight adoption analytics
+    runs-on: ubuntu-latest
+    # Only run on pushes to main (not PRs) to avoid duplicate reports
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Analyze component & color usage
+        uses: zeroheight/action-design-system-adoption@v2
+        with:
+          command: analyze
+        env:
+          ZEROHEIGHT_CLIENT_ID: ${{ secrets.ZEROHEIGHT_CLIENT_ID }}
+          ZEROHEIGHT_ACCESS_TOKEN: ${{ secrets.ZEROHEIGHT_ACCESS_TOKEN }}
+      - name: Track design system package version
+        uses: zeroheight/action-design-system-adoption@v2
+        with:
+          command: track-package
+        env:
+          ZEROHEIGHT_CLIENT_ID: ${{ secrets.ZEROHEIGHT_CLIENT_ID }}
+          ZEROHEIGHT_ACCESS_TOKEN: ${{ secrets.ZEROHEIGHT_ACCESS_TOKEN }}
+      - name: Monitor package versions across repo
+        uses: zeroheight/action-design-system-adoption@v2
+        with:
+          command: monitor-repo
+        env:
+          ZEROHEIGHT_CLIENT_ID: ${{ secrets.ZEROHEIGHT_CLIENT_ID }}
+          ZEROHEIGHT_ACCESS_TOKEN: ${{ secrets.ZEROHEIGHT_ACCESS_TOKEN }}
