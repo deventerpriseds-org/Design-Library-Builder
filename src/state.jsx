@@ -32,7 +32,10 @@ const INITIAL = {
   primaryColorHint: '',
   extractionLog: [],    // { category, message, done }
   extracting: false,
+  extractError: null,
   result: null,         // the full design-system JSON once extracted
+  // debug log — visible in DebugPanel
+  debugLog: [],         // { ts, level, msg }
   // saved systems (for showcase dropdown)
   savedSystems: [],
   activeSystemId: null,
@@ -47,10 +50,13 @@ function reducer(s, a) {
     case 'SET_DESC': return { ...s, description: a.description }
     case 'SET_NAME': return { ...s, projectName: a.name }
     case 'SET_COLOR_HINT': return { ...s, primaryColorHint: a.color }
-    case 'START_EXTRACT': return { ...s, extracting: true, extractionLog: [], result: null }
+    case 'START_EXTRACT': return { ...s, extracting: true, extractionLog: [], result: null, extractError: null }
     case 'LOG_CHUNK': return { ...s, extractionLog: [...s.extractionLog, a.event] }
     case 'SET_RESULT': return { ...s, extracting: false, result: a.result }
     case 'EXTRACT_ERROR': return { ...s, extracting: false }
+    case 'SET_ERROR': return { ...s, extracting: false, extractError: a.message }
+    case 'DEBUG_LOG': return { ...s, debugLog: [...s.debugLog, { ts: Date.now(), level: a.level || 'info', msg: a.msg }] }
+    case 'CLEAR_DEBUG': return { ...s, debugLog: [] }
     case 'PATCH_RESULT': return { ...s, result: { ...s.result, ...a.patch } }
     case 'SET_SAVED': return { ...s, savedSystems: a.systems }
     case 'ADD_SAVED': return { ...s, savedSystems: [a.system, ...s.savedSystems], activeSystemId: a.system.id }

@@ -231,17 +231,7 @@ For each component: include all applicable variant axes, states, sizes, componen
 
 Respond ONLY with the JSON object. No markdown fences, no explanation.`
 
-// ── In-memory job store (survives within a single function instance) ──────────
-interface Job {
-  status: 'running' | 'done' | 'error'
-  phase: string
-  result?: any
-  error?: string
-  startedAt: number
-}
-const JOBS = new Map<string, Job>()
-
-// ── POST /design-library/extract — starts job, returns ID immediately ─────────
+// ── POST /design-library/extract — synchronous, awaits full Claude response ───
 async function extractHandler(req: HttpRequest, _ctx: InvocationContext): Promise<HttpResponseInit> {
   if (req.method === 'OPTIONS') return { status: 204, headers: CORS }
   if (!CLAUDE_API_KEY) return { status: 500, headers: JSON_H, jsonBody: { error: 'ANTHROPIC_API_KEY not configured' } }
@@ -250,7 +240,6 @@ async function extractHandler(req: HttpRequest, _ctx: InvocationContext): Promis
   try { body = await req.json() } catch { return { status: 400, headers: JSON_H, jsonBody: { error: 'Invalid JSON body' } } }
 
   const { name, primaryColor, images = [], urls = [], description = '' } = body as any
-  const jobId = crypto.randomUUID()
 
   const contentBlocks: any[] = []
   contentBlocks.push({
@@ -262,85 +251,72 @@ async function extractHandler(req: HttpRequest, _ctx: InvocationContext): Promis
     if (match) contentBlocks.push({ type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } })
   }
 
-  const job: Job = { status: 'running', phase: 'Connecting to Claude…', startedAt: Date.now() }
-  JOBS.set(jobId, job)
+  const dbgSteps: string[] = []
+  const t0 = Date.now()
+  const elapsed = () => `+${Date.now() - t0}ms`
 
-  // Run Anthropic call in background — do NOT await
-  ;(async () => {
-    try {
-      job.phase = 'Calling Claude…'
-      const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': CLAUDE_API_KEY, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 16000,
-          system: SYSTEM_PROMPT,
-          messages: [{ role: 'user', content: contentBlocks }],
-          stream: true,
-        }),
-      })
+  try {
+    dbgSteps.push(`${elapsed()} images=${images.length} urls=${urls.length} name="${name || ''}"`)
+    const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': CLAUDE_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 16000,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: contentBlocks }],
+        stream: true,
+      }),
+    })
+    dbgSteps.push(`${elapsed()} Anthropic responded HTTP ${anthropicRes.status}`)
 
-      if (!anthropicRes.ok) {
-        const err = await anthropicRes.json().catch(() => ({})) as any
-        job.status = 'error'; job.error = err?.error?.message || `Anthropic API ${anthropicRes.status}`; return
-      }
-
-      job.phase = 'Claude is analysing your design…'
-      const reader = anthropicRes.body!.getReader()
-      const dec = new TextDecoder()
-      let sseBuf = '', jsonBuf = '', tokenCount = 0
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        sseBuf += dec.decode(value, { stream: true })
-        const lines = sseBuf.split('\n'); sseBuf = lines.pop()!
-        for (const l of lines) {
-          if (!l.startsWith('data: ')) continue
-          const data = l.slice(6); if (data === '[DONE]') continue
-          try {
-            const evt = JSON.parse(data)
-            if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
-              jsonBuf += evt.delta.text; tokenCount++
-              // Update phase label based on what Claude has written so far
-              if (jsonBuf.includes('"components"')) job.phase = 'Extracting components…'
-              else if (jsonBuf.includes('"textStyles"')) job.phase = 'Extracting text styles…'
-              else if (jsonBuf.includes('"variables"')) job.phase = 'Extracting tokens…'
-            }
-          } catch {}
-        }
-      }
-
-      job.phase = 'Parsing result…'
-      let result: any = null
-      try { result = JSON.parse(jsonBuf.replace(/^```json?\s*/i, '').replace(/```\s*$/, '').trim()) } catch {
-        const m = jsonBuf.match(/\{[\s\S]*\}/); if (m) try { result = JSON.parse(m[0]) } catch {}
-      }
-      if (!result) { job.status = 'error'; job.error = 'JSON parse failed — Claude returned invalid JSON'; return }
-      if (!result.meta) result.meta = {}
-      result.meta.name = result.meta.name || name || 'Design System'
-      result.meta.extractedAt = new Date().toISOString()
-      result.meta.tokenCount = tokenCount
-      job.result = result; job.status = 'done'; job.phase = 'Done'
-    } catch (e) {
-      job.status = 'error'; job.error = (e as Error).message
+    if (!anthropicRes.ok) {
+      const err = await anthropicRes.json().catch(() => ({})) as any
+      return { status: 502, headers: JSON_H, jsonBody: { error: err?.error?.message || `Anthropic API ${anthropicRes.status}` } }
     }
-  })()
 
-  return { status: 202, headers: JSON_H, jsonBody: { jobId } }
-}
+    const reader = anthropicRes.body!.getReader()
+    const dec = new TextDecoder()
+    let sseBuf = '', jsonBuf = '', tokenCount = 0
 
-// ── GET /design-library/status/{jobId} — poll for job result ─────────────────
-async function statusHandler(req: HttpRequest, _ctx: InvocationContext): Promise<HttpResponseInit> {
-  if (req.method === 'OPTIONS') return { status: 204, headers: CORS }
-  const jobId = req.params.jobId
-  const job = JOBS.get(jobId)
-  if (!job) return { status: 404, headers: JSON_H, jsonBody: { error: 'Job not found' } }
-  if (job.status === 'running') return { status: 200, headers: JSON_H, jsonBody: { status: 'running', phase: job.phase, elapsed: Date.now() - job.startedAt } }
-  if (job.status === 'error') { JOBS.delete(jobId); return { status: 200, headers: JSON_H, jsonBody: { status: 'error', error: job.error } } }
-  JOBS.delete(jobId)
-  return { status: 200, headers: JSON_H, jsonBody: { status: 'done', result: job.result } }
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      sseBuf += dec.decode(value, { stream: true })
+      const lines = sseBuf.split('\n'); sseBuf = lines.pop()!
+      for (const l of lines) {
+        if (!l.startsWith('data: ')) continue
+        const data = l.slice(6); if (data === '[DONE]') continue
+        try {
+          const evt = JSON.parse(data)
+          if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
+            jsonBuf += evt.delta.text; tokenCount++
+          }
+        } catch {}
+      }
+    }
+    dbgSteps.push(`${elapsed()} stream done — deltas=${tokenCount} rawLen=${jsonBuf.length}`)
+
+    let result: any = null
+    try { result = JSON.parse(jsonBuf.replace(/^```json?\s*/i, '').replace(/```\s*$/, '').trim()) } catch {
+      const m = jsonBuf.match(/\{[\s\S]*\}/); if (m) try { result = JSON.parse(m[0]) } catch {}
+    }
+    if (!result) return { status: 422, headers: JSON_H, jsonBody: { error: 'Claude returned invalid JSON', raw: jsonBuf.slice(0, 500) } }
+
+    dbgSteps.push(`${elapsed()} JSON parsed OK`)
+
+    if (!result.meta) result.meta = {}
+    result.meta.name = result.meta.name || name || 'Design System'
+    result.meta.extractedAt = new Date().toISOString()
+    result.meta.tokenCount = tokenCount
+    result._debug = { steps: dbgSteps, tokenCount, totalMs: Date.now() - t0 }
+
+    dbgSteps.push(`${elapsed()} responding 200`)
+    return { status: 200, headers: JSON_H, jsonBody: result }
+  } catch (e) {
+    dbgSteps.push(`${elapsed()} EXCEPTION: ${(e as Error).message}`)
+    return { status: 500, headers: JSON_H, jsonBody: { error: (e as Error).message, _debug: { steps: dbgSteps } } }
+  }
 }
 
 // ── Save endpoint ─────────────────────────────────────────────────────────────
@@ -422,13 +398,6 @@ app.http('designLibraryExtract', {
   authLevel: 'anonymous',
   route: 'design-library/extract',
   handler: extractHandler,
-})
-
-app.http('designLibraryStatus', {
-  methods: ['GET', 'OPTIONS'],
-  authLevel: 'anonymous',
-  route: 'design-library/status/{jobId}',
-  handler: statusHandler,
 })
 
 app.http('designLibrarySave', {

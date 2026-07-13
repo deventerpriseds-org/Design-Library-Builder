@@ -12,35 +12,16 @@ function authHeaders() {
   return _sessionToken ? { Authorization: `Bearer ${_sessionToken}` } : {}
 }
 
-// POST /design-library/extract → job ID, then poll GET /design-library/status/{id}
-export async function extractDesign({ name, primaryColor, images, urls, description }, onChunk) {
-  // Start the job
-  const startRes = await fetch(`${API_BASE}/design-library/extract`, {
+// POST /design-library/extract — waits for full result (synchronous, no streaming)
+export async function extractDesign({ name, primaryColor, images, urls, description }, _onChunk) {
+  const res = await fetch(`${API_BASE}/design-library/extract`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ name, primaryColor, images, urls, description }),
   })
-  if (!startRes.ok) {
-    const err = await startRes.json().catch(() => ({}))
-    throw new Error(err?.error || `Extract failed: ${startRes.status}`)
-  }
-  const { jobId } = await startRes.json()
-
-  // Poll until done
-  const POLL_MS = 2000
-  while (true) {
-    await new Promise(r => setTimeout(r, POLL_MS))
-    const pollRes = await fetch(`${API_BASE}/design-library/status/${jobId}`, { headers: authHeaders() })
-    if (!pollRes.ok) throw new Error(`Status check failed: ${pollRes.status}`)
-    const data = await pollRes.json()
-    if (data.status === 'running') {
-      onChunk?.({ type: 'heartbeat', phase: data.phase, elapsed: data.elapsed })
-    } else if (data.status === 'error') {
-      throw new Error(data.error || 'Extraction failed')
-    } else if (data.status === 'done') {
-      return data.result
-    }
-  }
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data?.error || `Extract failed: ${res.status}`)
+  return data
 }
 
 // GET /design-library/saved  — list user's saved design systems

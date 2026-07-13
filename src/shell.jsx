@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useApp, useRoute, go } from './state.jsx'
 import { signOut } from './auth.js'
+import DebugPanel from './components/DebugPanel.jsx'
 
 const NAV = [
   { path: '/upload',   label: 'Upload',   icon: '⇑',  desc: 'Add inputs' },
@@ -148,6 +149,7 @@ export function Shell({ children }) {
           {children}
         </main>
       </div>
+      <DebugPanel />
     </div>
   )
 }
