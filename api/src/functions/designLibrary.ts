@@ -298,6 +298,14 @@ async function extractHandler(req: HttpRequest, context: InvocationContext): Pro
         }
       }
 
+      // Keep-alive: emit a heartbeat every 5 s so the proxy doesn't close
+      // an idle connection during the cold-start / Anthropic connect phase.
+      let keepAlive: ReturnType<typeof setInterval> | null = setInterval(
+        () => emit({ type: 'heartbeat', ts: Date.now() }),
+        5000,
+      )
+      const stopKeepAlive = () => { if (keepAlive) { clearInterval(keepAlive); keepAlive = null } }
+
       try {
         emit({ type: 'progress', category: 'primitives', message: 'Connecting to Claude…' })
         emit({ type: 'heartbeat', ts: Date.now() })
@@ -319,6 +327,7 @@ async function extractHandler(req: HttpRequest, context: InvocationContext): Pro
         })
 
         if (!anthropicRes.ok) {
+          stopKeepAlive()
           const err = await anthropicRes.json().catch(() => ({})) as any
           emit({ type: 'progress', category: 'error', message: err?.error?.message || `Anthropic API ${anthropicRes.status}`, done: true })
           controller.close(); return
@@ -331,7 +340,6 @@ async function extractHandler(req: HttpRequest, context: InvocationContext): Pro
         let sseBuf = ''
         let jsonBuf = ''
         let tokenCount = 0
-        let lastHeartbeat = Date.now()
 
         while (true) {
           const { done, value } = await reader.read()
@@ -351,16 +359,12 @@ async function extractHandler(req: HttpRequest, context: InvocationContext): Pro
                 jsonBuf += chunk
                 tokenCount++
                 advanceProgress(jsonBuf)
-                // Heartbeat every 3s so the frontend knows we're alive
-                const now = Date.now()
-                if (now - lastHeartbeat > 3000) {
-                  emit({ type: 'heartbeat', ts: now, tokens: tokenCount })
-                  lastHeartbeat = now
-                }
               }
             } catch { /* partial SSE line */ }
           }
         }
+
+        stopKeepAlive()
 
         // Mark any remaining categories done
         for (const cat of CATEGORIES) {
@@ -395,6 +399,7 @@ async function extractHandler(req: HttpRequest, context: InvocationContext): Pro
 
         emit({ type: 'result', data: result })
       } catch (e) {
+        stopKeepAlive()
         emit({ type: 'progress', category: 'error', message: (e as Error).message, done: true })
       }
       controller.close()

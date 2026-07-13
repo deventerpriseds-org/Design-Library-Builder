@@ -50,7 +50,7 @@ export default function Extract() {
   useEffect(() => {
     if (!state.extracting) { setStalled(false); return }
     const id = setInterval(() => {
-      if (Date.now() - lastHeartbeat.current > 20000) setStalled(true)
+      if (Date.now() - lastHeartbeat.current > 12000) setStalled(true)
       else setStalled(false)
     }, 2000)
     return () => clearInterval(id)
