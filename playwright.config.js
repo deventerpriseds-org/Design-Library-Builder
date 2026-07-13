@@ -1,5 +1,10 @@
 import { defineConfig, devices } from '@playwright/test'
 
+// Only override the executable when explicitly set (CCR environment).
+// On CI, Playwright uses the browser it installs via `npx playwright install`.
+const chromiumPath = process.env.PLAYWRIGHT_CHROMIUM_PATH || ''
+const launchOptions = chromiumPath ? { executablePath: chromiumPath } : {}
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
@@ -15,20 +20,16 @@ export default defineConfig({
       name: 'chromium',
       use: {
         ...devices['Desktop Chrome'],
-        launchOptions: {
-          executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH || '/opt/pw-browsers/chromium',
-        },
+        launchOptions,
       },
     },
     {
-      // iPhone 13 viewport via Chromium — WebKit not available on CI runners
+      // iPhone 13 viewport via Chromium — WebKit not pre-installed on CI runners
       name: 'mobile',
       use: {
         ...devices['iPhone 13'],
         browserName: 'chromium',
-        launchOptions: {
-          executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH || '/opt/pw-browsers/chromium',
-        },
+        launchOptions,
       },
     },
   ],
