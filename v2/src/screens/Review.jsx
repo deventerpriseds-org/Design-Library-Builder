@@ -1,6 +1,7 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useApp, go } from '../state.jsx'
 import { ComponentShowcase } from './Showcase.jsx'
+import { listPalettes, savePalette } from '../api.js'
 
 const TABS = ['Preview', 'Colors', 'Typography', 'Tokens', 'Components', 'Effects', 'Grids']
 
@@ -245,11 +246,148 @@ function parseTweak(text, result) {
   return patch
 }
 
+function applyPaletteToResult(result, palette) {
+  if (!palette) return result
+  const patch = {
+    meta: {
+      ...result.meta,
+      ...(palette.primary_color && { primaryColor: palette.primary_color }),
+      ...(palette.secondary_color && { secondaryColor: palette.secondary_color }),
+      ...(palette.bg_color && { bgColor: palette.bg_color }),
+      ...(palette.surface_color && { surfaceColor: palette.surface_color }),
+      ...(palette.text_color && { textColor: palette.text_color }),
+      ...(palette.border_color && { borderColor: palette.border_color }),
+    },
+  }
+  if (palette.primitives) {
+    patch.variables = {
+      ...result.variables,
+      collections: {
+        ...result.variables?.collections,
+        Primitives: palette.primitives,
+      },
+    }
+  }
+  if (palette.color_tokens) {
+    patch.variables = {
+      ...patch.variables,
+      collections: {
+        ...(patch.variables?.collections || result.variables?.collections),
+        Color: palette.color_tokens,
+      },
+    }
+  }
+  if (palette.style_colors) {
+    patch.styles = { ...result.styles, color: palette.style_colors }
+  }
+  return { ...result, ...patch }
+}
+
+function PalettePicker({ result, dispatch, savedPalettes }) {
+  const [open, setOpen] = useState(false)
+  const [customPrimary, setCustomPrimary] = useState(result?.meta?.primaryColor || '')
+  const [customSecondary, setCustomSecondary] = useState(result?.meta?.secondaryColor || '')
+  const [saving, setSaving] = useState(false)
+  const [saveMsg, setSaveMsg] = useState('')
+
+  async function handleSavePalette() {
+    if (!result?.meta?.primaryColor) return
+    setSaving(true)
+    try {
+      const saved = await savePalette({
+        orgId: 'default',
+        name: `${result.meta.name || 'System'} — ${result.meta.primaryColor}`,
+        primaryColor: result.meta.primaryColor,
+        secondaryColor: result.meta.secondaryColor,
+        bgColor: result.meta.bgColor,
+        surfaceColor: result.meta.surfaceColor,
+        textColor: result.meta.textColor,
+        borderColor: result.meta.borderColor,
+        primitives: result.variables?.collections?.Primitives?.filter(v => v.type === 'color' || v.resolvedType === 'COLOR'),
+        colorTokens: result.variables?.collections?.Color,
+        styleColors: result.styles?.color,
+        extractedFromSystemId: result.meta?.extractedAt,
+      })
+      dispatch({ type: 'ADD_PALETTE', palette: saved })
+      setSaveMsg('Palette saved ✓')
+      setTimeout(() => setSaveMsg(''), 2500)
+    } catch {}
+    setSaving(false)
+  }
+
+  function applyCustom() {
+    if (!customPrimary) return
+    const patch = { meta: { ...result.meta, primaryColor: customPrimary, secondaryColor: customSecondary || customPrimary } }
+    dispatch({ type: 'PATCH_RESULT', patch })
+    setOpen(false)
+  }
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <button
+        className="dlg-btn"
+        onClick={() => setOpen(o => !o)}
+        style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+      >
+        <div style={{ width: 16, height: 16, borderRadius: 4, background: result?.meta?.primaryColor || '#888', border: '1px solid rgba(0,0,0,0.15)', flexShrink: 0 }} />
+        Color Palette ▾
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 200, background: 'var(--dlg-surface)', border: '1px solid var(--dlg-border)', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', minWidth: 300, padding: 14 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--dlg-text-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>Org Palettes</div>
+          {savedPalettes.length === 0 && (
+            <div style={{ fontSize: 13, color: 'var(--dlg-text-3)', marginBottom: 10 }}>No saved palettes yet. Save one after extraction.</div>
+          )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 12 }}>
+            {savedPalettes.map(p => (
+              <button key={p.id} onClick={() => { dispatch({ type: 'PATCH_RESULT', patch: applyPaletteToResult(result, p) }); setOpen(false) }}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--dlg-border)', background: 'var(--dlg-bg)', cursor: 'pointer', textAlign: 'left', width: '100%' }}>
+                <div style={{ width: 20, height: 20, borderRadius: 5, background: p.primary_color, border: '1px solid rgba(0,0,0,0.1)', flexShrink: 0 }} />
+                {p.secondary_color && <div style={{ width: 12, height: 12, borderRadius: 3, background: p.secondary_color, border: '1px solid rgba(0,0,0,0.1)', flexShrink: 0 }} />}
+                <span style={{ fontSize: 13, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+              </button>
+            ))}
+          </div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--dlg-text-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>Custom Colors</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+            <div>
+              <label style={{ fontSize: 11, color: 'var(--dlg-text-2)', marginBottom: 3, display: 'block' }}>Primary</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <input type="color" value={customPrimary || '#000000'} onChange={e => setCustomPrimary(e.target.value)} style={{ width: 28, height: 28, border: 'none', padding: 0, cursor: 'pointer', background: 'none' }} />
+                <input value={customPrimary} onChange={e => setCustomPrimary(e.target.value)} placeholder="#hex" style={{ flex: 1, height: 28, padding: '0 8px', border: '1px solid var(--dlg-border)', borderRadius: 5, fontSize: 12, fontFamily: 'monospace', minWidth: 0 }} />
+              </div>
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: 'var(--dlg-text-2)', marginBottom: 3, display: 'block' }}>Secondary</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <input type="color" value={customSecondary || customPrimary || '#000000'} onChange={e => setCustomSecondary(e.target.value)} style={{ width: 28, height: 28, border: 'none', padding: 0, cursor: 'pointer', background: 'none' }} />
+                <input value={customSecondary} onChange={e => setCustomSecondary(e.target.value)} placeholder="#hex" style={{ flex: 1, height: 28, padding: '0 8px', border: '1px solid var(--dlg-border)', borderRadius: 5, fontSize: 12, fontFamily: 'monospace', minWidth: 0 }} />
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button className="dlg-btn dlg-btn-primary" onClick={applyCustom} style={{ flex: 1, height: 30, fontSize: 12 }}>Apply</button>
+            <button className="dlg-btn" onClick={handleSavePalette} disabled={saving} style={{ flex: 1, height: 30, fontSize: 12 }}>
+              {saving ? 'Saving…' : saveMsg || '💾 Save palette'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Review() {
   const { state, dispatch } = useApp()
   const [tab, setTab] = useState('Preview')
   const [tweak, setTweak] = useState('')
   const [tweakApplied, setTweakApplied] = useState(false)
+
+  useEffect(() => {
+    if (!state.savedPalettes.length) {
+      listPalettes('default').then(palettes => dispatch({ type: 'SET_PALETTES', palettes })).catch(() => {})
+    }
+  }, [])
 
   if (!state.result) {
     return (
@@ -300,10 +438,14 @@ export default function Review() {
               Preview the assembled app, review each bin, and apply tweaks before pushing to Figma.
             </p>
           </div>
-          <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+          <div style={{ display: 'flex', gap: 8, flexShrink: 0, alignItems: 'center', flexWrap: 'wrap' }}>
             <button className="dlg-btn" onClick={() => go('/extract')}>← Re-extract</button>
-            <button className="dlg-btn dlg-btn-primary" onClick={() => go('/showcase')} style={{ height: 38, padding: '0 20px' }}>
-              Approve &amp; Showcase →
+            <PalettePicker result={r} dispatch={dispatch} savedPalettes={state.savedPalettes} />
+            <button className="dlg-btn dlg-btn-primary" onClick={() => go('/figma-push')} style={{ height: 38, padding: '0 20px' }}>
+              Push to Figma →
+            </button>
+            <button className="dlg-btn" onClick={() => go('/showcase')} style={{ height: 38, padding: '0 16px' }}>
+              Showcase →
             </button>
           </div>
         </div>

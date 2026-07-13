@@ -36,6 +36,13 @@ const INITIAL = {
   // saved systems (for showcase dropdown)
   savedSystems: [],
   activeSystemId: null,
+  // figma push
+  figmaPushResult: null, // { checklist, fileId, pluginJson }
+  figmaFileId: null,
+  figmaToken: '',
+  // org palette library
+  savedPalettes: [],
+  activePaletteId: null,
 }
 
 function reducer(s, a) {
@@ -55,6 +62,12 @@ function reducer(s, a) {
     case 'SET_SAVED': return { ...s, savedSystems: a.systems }
     case 'ADD_SAVED': return { ...s, savedSystems: [a.system, ...s.savedSystems], activeSystemId: a.system.id }
     case 'SET_ACTIVE': return { ...s, activeSystemId: a.id }
+    case 'SET_FIGMA_PUSH': return { ...s, figmaPushResult: a.result, figmaFileId: a.result?.fileId || s.figmaFileId }
+    case 'SET_FIGMA_FILE': return { ...s, figmaFileId: a.id }
+    case 'SET_FIGMA_TOKEN': return { ...s, figmaToken: a.token }
+    case 'SET_PALETTES': return { ...s, savedPalettes: a.palettes }
+    case 'ADD_PALETTE': return { ...s, savedPalettes: [a.palette, ...s.savedPalettes], activePaletteId: a.palette.id }
+    case 'SET_ACTIVE_PALETTE': return { ...s, activePaletteId: a.id }
     default: return s
   }
 }

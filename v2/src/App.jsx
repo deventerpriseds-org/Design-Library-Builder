@@ -7,6 +7,7 @@ import Extract from './screens/Extract.jsx'
 import Review from './screens/Review.jsx'
 import Export from './screens/Export.jsx'
 import Showcase from './screens/Showcase.jsx'
+import FigmaPush from './screens/FigmaPush.jsx'
 
 function Router() {
   const { dispatch } = useApp()
@@ -27,6 +28,7 @@ function Router() {
       {screen === 'extract' && <Extract />}
       {screen === 'review' && <Review />}
       {screen === 'export' && <Export />}
+      {screen === 'figma-push' && <FigmaPush />}
       {screen === 'showcase' && <Showcase />}
     </Shell>
   )

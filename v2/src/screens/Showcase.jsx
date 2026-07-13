@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useApp, go } from '../state.jsx'
-import { listDesignSystems, saveDesignSystem } from '../api.js'
+import { listDesignSystems, saveDesignSystem, patchFigma, generateStories, listPalettes, savePalette } from '../api.js'
+import JSZip from 'jszip'
 
 export function ComponentShowcase({ result }) {
   const primary = result?.meta?.primaryColor || '#1B4F5C'
@@ -477,11 +478,248 @@ function LabeledInput({ label, value, placeholder, focused, radius, border, bran
   )
 }
 
+// ── Inline story renderer ─────────────────────────────────────────────────────
+function StoryCard({ component, S }) {
+  const variants = component.variants?.length ? component.variants : ['Default']
+  const [active, setActive] = useState(variants[0])
+
+  return (
+    <div className="dlg-card" style={{ padding: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        <div style={{ width: 28, height: 28, borderRadius: 6, background: S.brandSoft, display: 'flex', alignItems: 'center', justifyContent: 'center', color: S.brand, fontSize: 13 }}>▦</div>
+        <div>
+          <div style={{ fontWeight: 600, fontSize: 14 }}>{component.name}</div>
+          <div style={{ fontSize: 11, color: S.text2, textTransform: 'capitalize' }}>{component.tier || 'component'}</div>
+        </div>
+      </div>
+      {variants.length > 1 && (
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 12 }}>
+          {variants.map(v => (
+            <button key={v} onClick={() => setActive(v)}
+              style={{ padding: '2px 8px', borderRadius: 9999, fontSize: 11, border: `1px solid ${active === v ? S.brand : S.border}`, background: active === v ? S.brandSoft : 'none', color: active === v ? S.brand : S.text2, cursor: 'pointer' }}>
+              {v}
+            </button>
+          ))}
+        </div>
+      )}
+      <div style={{ padding: '14px 16px', background: S.bg, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 56 }}>
+        <button style={{ display: 'inline-flex', alignItems: 'center', padding: '0 16px', height: 36, borderRadius: S.radius, background: S.brand, color: '#fff', fontWeight: 500, fontSize: 13, border: 'none', cursor: 'pointer', fontFamily: S.bodyFont }}>
+          {active} — {component.name}
+        </button>
+      </div>
+      {component.description && <div style={{ fontSize: 12, color: S.text2, marginTop: 8 }}>{component.description}</div>}
+    </div>
+  )
+}
+
+function Stories({ result }) {
+  const S = {
+    brand: result?.meta?.primaryColor || '#1B4F5C',
+    brandSoft: (result?.meta?.primaryColor || '#1B4F5C') + '20',
+    bg: result?.meta?.bgColor || '#F8F9FA',
+    border: result?.meta?.borderColor || '#E2E8F0',
+    text2: '#64748B',
+    radius: result?.meta?.buttonRadius || 8,
+    bodyFont: 'Inter, system-ui, sans-serif',
+  }
+  const components = result?.components || []
+  const [downloading, setDownloading] = useState(false)
+
+  async function handleDownloadZip() {
+    if (downloading) return
+    setDownloading(true)
+    try {
+      const { stories } = await generateStories(result)
+      if (!stories?.length) { setDownloading(false); return }
+      const zip = new JSZip()
+      const folder = zip.folder('stories')
+      for (const s of stories) {
+        folder.file(s.filename, s.content)
+      }
+      folder.file('.storybook/main.js', `export default {
+  stories: ['../**/*.stories.jsx'],
+  addons: ['@storybook/addon-essentials'],
+  framework: { name: '@storybook/react-vite', options: {} },
+}`)
+      const blob = await zip.generateAsync({ type: 'blob' })
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = 'stories.zip'
+      a.click()
+    } catch {}
+    setDownloading(false)
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+        <div style={{ color: 'var(--dlg-text-2)', fontSize: 14 }}>{components.length} components with inline stories</div>
+        <button className="dlg-btn" onClick={handleDownloadZip} disabled={downloading}>
+          {downloading ? 'Generating…' : '⬇ Download .stories.jsx ZIP'}
+        </button>
+      </div>
+      {components.length === 0 && (
+        <div style={{ padding: 32, textAlign: 'center', color: 'var(--dlg-text-3)' }}>No components extracted — run a new extraction to see stories here.</div>
+      )}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 14 }}>
+        {components.map((c, i) => <StoryCard key={i} component={c} S={S} />)}
+      </div>
+    </div>
+  )
+}
+
+// ── Parallel tweak bar ────────────────────────────────────────────────────────
+function ParallelTweakBar({ result, dispatch, figmaFileId, figmaToken }) {
+  const [tweak, setTweak] = useState('')
+  const [status, setStatus] = useState({ app: null, figma: null, stories: null })
+
+  function parseTweak(text) {
+    const patch = { meta: { ...result?.meta } }
+    const t = text.toLowerCase()
+    const hexMatch = text.match(/#[0-9a-fA-F]{3,6}/)
+    const numMatch = text.match(/\b(\d+)(px)?\b/)
+    const num = numMatch ? parseInt(numMatch[1]) : null
+    if (hexMatch && (t.includes('primary') || t.includes('brand') || t.includes('color'))) patch.meta.primaryColor = hexMatch[0]
+    if (hexMatch && t.includes('secondary')) patch.meta.secondaryColor = hexMatch[0]
+    if (hexMatch && (t.includes('background') || t.includes('bg'))) patch.meta.bgColor = hexMatch[0]
+    if (num != null && t.includes('radius')) { patch.meta.buttonRadius = num; patch.meta.cardRadius = Math.max(num, Math.round(num * 1.5)) }
+    if (hexMatch && t.includes('text') && !t.includes('button')) patch.meta.textColor = hexMatch[0]
+    if (hexMatch && t.includes('border')) patch.meta.borderColor = hexMatch[0]
+    return patch
+  }
+
+  async function applyTweak() {
+    if (!tweak.trim() || !result) return
+    const patch = parseTweak(tweak)
+    setStatus({ app: 'pending', figma: figmaFileId ? 'pending' : null, stories: 'pending' })
+
+    // App — instant
+    dispatch({ type: 'PATCH_RESULT', patch })
+    setStatus(s => ({ ...s, app: 'ok' }))
+
+    const appliedResult = { ...result, ...patch }
+
+    // Figma — async
+    if (figmaFileId) {
+      patchFigma({ figmaFileId, figmaToken, patch }).then(res => {
+        setStatus(s => ({ ...s, figma: res?.ok ? 'ok' : 'error' }))
+      }).catch(() => setStatus(s => ({ ...s, figma: 'error' })))
+    }
+
+    // Stories — regenerate
+    generateStories(appliedResult).then(res => {
+      setStatus(s => ({ ...s, stories: res?.stories?.length ? 'ok' : 'error' }))
+    }).catch(() => setStatus(s => ({ ...s, stories: 'error' })))
+
+    setTweak('')
+    setTimeout(() => setStatus({ app: null, figma: null, stories: null }), 4000)
+  }
+
+  const dot = (label, state) => {
+    if (state === null) return null
+    const color = state === 'ok' ? '#16A34A' : state === 'error' ? '#DC2626' : '#D97706'
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color }}>
+        <span style={{ width: 8, height: 8, borderRadius: 9999, background: state === 'pending' ? '#D97706' : color, display: 'inline-block' }} />
+        {label}
+      </span>
+    )
+  }
+
+  return (
+    <div style={{ padding: '10px 20px', borderBottom: '1px solid var(--dlg-border)', background: 'var(--dlg-surface)', flexShrink: 0 }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <input
+          value={tweak}
+          onChange={e => setTweak(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && applyTweak()}
+          placeholder='Tweak all targets at once — e.g. "primary color #3B82F6" or "radius 4px"'
+          style={{ flex: 1, height: 36, padding: '0 12px', border: '1px solid var(--dlg-border)', borderRadius: 8, background: 'var(--dlg-bg)', color: 'var(--dlg-text)', fontSize: 13, fontFamily: 'inherit', minWidth: 0 }}
+        />
+        <button className="dlg-btn dlg-btn-primary" onClick={applyTweak} style={{ height: 36, padding: '0 16px', flexShrink: 0 }}>Apply All</button>
+      </div>
+      {(status.app !== null || status.figma !== null || status.stories !== null) && (
+        <div style={{ display: 'flex', gap: 12, marginTop: 6 }}>
+          {dot('App', status.app)}
+          {dot('Figma', status.figma)}
+          {dot('Stories', status.stories)}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Palette picker (showcase version) ────────────────────────────────────────
+function ShowcasePalettePicker({ result, dispatch, savedPalettes }) {
+  const [open, setOpen] = useState(false)
+  const [customPrimary, setCustomPrimary] = useState('')
+  const [customSecondary, setCustomSecondary] = useState('')
+
+  function applyPalette(p) {
+    const patch = {
+      meta: {
+        ...result.meta,
+        primaryColor: p.primary_color,
+        ...(p.secondary_color && { secondaryColor: p.secondary_color }),
+        ...(p.bg_color && { bgColor: p.bg_color }),
+        ...(p.text_color && { textColor: p.text_color }),
+        ...(p.border_color && { borderColor: p.border_color }),
+      },
+    }
+    dispatch({ type: 'PATCH_RESULT', patch })
+    setOpen(false)
+  }
+
+  function applyCustom() {
+    if (!customPrimary) return
+    dispatch({ type: 'PATCH_RESULT', patch: { meta: { ...result?.meta, primaryColor: customPrimary, secondaryColor: customSecondary || customPrimary } } })
+    setOpen(false)
+  }
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <button className="dlg-btn" onClick={() => setOpen(o => !o)} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ width: 16, height: 16, borderRadius: 4, background: result?.meta?.primaryColor || '#888', border: '1px solid rgba(0,0,0,0.15)' }} />
+        Palette ▾
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 200, background: 'var(--dlg-surface)', border: '1px solid var(--dlg-border)', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', minWidth: 280, padding: 14 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--dlg-text-3)', textTransform: 'uppercase', marginBottom: 8 }}>Org Palettes</div>
+          {savedPalettes.length === 0 && <div style={{ fontSize: 13, color: 'var(--dlg-text-3)', marginBottom: 10 }}>No saved palettes.</div>}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 12 }}>
+            {savedPalettes.map(p => (
+              <button key={p.id} onClick={() => applyPalette(p)}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--dlg-border)', background: 'var(--dlg-bg)', cursor: 'pointer', textAlign: 'left', width: '100%' }}>
+                <div style={{ width: 18, height: 18, borderRadius: 4, background: p.primary_color, flexShrink: 0, border: '1px solid rgba(0,0,0,0.1)' }} />
+                <span style={{ fontSize: 13 }}>{p.name}</span>
+              </button>
+            ))}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 8 }}>
+            <div>
+              <label style={{ fontSize: 11, color: 'var(--dlg-text-2)', marginBottom: 2, display: 'block' }}>Primary</label>
+              <input type="color" value={customPrimary || '#000000'} onChange={e => setCustomPrimary(e.target.value)} style={{ width: '100%', height: 28, border: '1px solid var(--dlg-border)', borderRadius: 5, cursor: 'pointer', padding: 2 }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: 'var(--dlg-text-2)', marginBottom: 2, display: 'block' }}>Secondary</label>
+              <input type="color" value={customSecondary || customPrimary || '#000000'} onChange={e => setCustomSecondary(e.target.value)} style={{ width: '100%', height: 28, border: '1px solid var(--dlg-border)', borderRadius: 5, cursor: 'pointer', padding: 2 }} />
+            </div>
+          </div>
+          <button className="dlg-btn dlg-btn-primary" onClick={applyCustom} style={{ width: '100%', height: 30, fontSize: 12 }}>Apply Custom</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+const SHOWCASE_TABS = ['Preview', 'Stories']
+
 export default function Showcase() {
   const { state, dispatch } = useApp()
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [savedId, setSavedId] = useState(null)
+  const [activeTab, setActiveTab] = useState('Preview')
 
   useEffect(() => {
     if (state.user && !state.savedSystems.length) {
@@ -493,6 +731,12 @@ export default function Showcase() {
       }).catch(() => setLoading(false))
     }
   }, [state.user])
+
+  useEffect(() => {
+    if (!state.savedPalettes.length) {
+      listPalettes('default').then(palettes => dispatch({ type: 'SET_PALETTES', palettes })).catch(() => {})
+    }
+  }, [])
 
   const options = [
     ...(state.result ? [{ id: '__current', meta: { name: state.projectName || 'Current Session' }, ...state.result }] : []),
@@ -509,14 +753,33 @@ export default function Showcase() {
       const saved = await saveDesignSystem({ meta: { name: state.projectName, ...state.result.meta }, ...state.result })
       dispatch({ type: 'SET_SAVED', systems: [saved, ...state.savedSystems] })
       setSavedId(saved.id)
+      // Auto-save palette
+      if (state.result.meta?.primaryColor) {
+        savePalette({
+          orgId: 'default',
+          name: `${state.result.meta?.name || 'System'} — ${state.result.meta.primaryColor}`,
+          primaryColor: state.result.meta.primaryColor,
+          secondaryColor: state.result.meta.secondaryColor,
+          bgColor: state.result.meta.bgColor,
+          textColor: state.result.meta.textColor,
+          borderColor: state.result.meta.borderColor,
+          extractedFromSystemId: saved.id,
+        }).then(p => dispatch({ type: 'ADD_PALETTE', palette: p })).catch(() => {})
+      }
     } catch (e) { /* silently fail */ }
     setSaving(false)
   }
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--dlg-border)', background: 'var(--dlg-surface)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+      {/* Top bar */}
+      <div style={{ padding: '10px 20px', borderBottom: '1px solid var(--dlg-border)', background: 'var(--dlg-surface)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <div className="t-h3">Design System Showcase</div>
+        <div style={{ display: 'flex', gap: 2 }}>
+          {SHOWCASE_TABS.map(t => (
+            <button key={t} className={`dlg-tab${activeTab === t ? ' active' : ''}`} onClick={() => setActiveTab(t)}>{t}</button>
+          ))}
+        </div>
         <div style={{ flex: 1 }} />
         {loading && <div className="dlg-spinner" />}
         {options.length > 0 && (
@@ -529,24 +792,23 @@ export default function Showcase() {
             ))}
           </select>
         )}
+        {activeSystem && <ShowcasePalettePicker result={activeSystem} dispatch={dispatch} savedPalettes={state.savedPalettes} />}
         {state.result && !savedId && state.user && (
-          <button className="dlg-btn" onClick={handleSave} disabled={saving} style={{ gap: 6 }}>
+          <button className="dlg-btn" onClick={handleSave} disabled={saving}>
             {saving ? <><div className="dlg-spinner" style={{ width: 12, height: 12, borderWidth: 2 }} /> Saving…</> : '💾 Save'}
           </button>
         )}
         {savedId && <span className="dlg-badge dlg-badge-success">Saved ✓</span>}
-        <button className="dlg-btn" onClick={() => go('/export')} title="Download tokens">
-          ⬇ Download
-        </button>
-        {state.result && (
-          <button className="dlg-btn dlg-btn-primary" onClick={() => go('/export?target=figma')} title="Push to Figma">
-            ◆ Open in Figma
-          </button>
-        )}
+        <button className="dlg-btn" onClick={() => go('/export')} title="Download tokens">⬇ Export</button>
+        <button className="dlg-btn" onClick={() => go('/figma-push')} title="Push to Figma">◆ Figma</button>
       </div>
 
+      {/* Parallel tweak bar */}
+      <ParallelTweakBar result={state.result} dispatch={dispatch} figmaFileId={state.figmaFileId} figmaToken={state.figmaToken} />
+
+      {/* Tab content */}
       <div style={{ flex: 1, overflow: 'auto', padding: 24, background: 'var(--dlg-bg)' }}>
-        {activeSystem ? (
+        {activeSystem && activeTab === 'Preview' ? (
           <div style={{ maxWidth: 900, margin: '0 auto' }}>
             <div style={{ marginBottom: 20, display: 'flex', alignItems: 'center', gap: 10 }}>
               {activeSystem.meta?.primaryColor && (
@@ -555,13 +817,15 @@ export default function Showcase() {
               <div>
                 <div className="t-h2">{activeSystem.meta?.name || 'Untitled System'}</div>
                 {activeSystem.meta?.extractedAt && (
-                  <div className="t-xs" style={{ color: 'var(--dlg-text-3)' }}>
-                    Generated {new Date(activeSystem.meta.extractedAt).toLocaleDateString()}
-                  </div>
+                  <div className="t-xs" style={{ color: 'var(--dlg-text-3)' }}>Generated {new Date(activeSystem.meta.extractedAt).toLocaleDateString()}</div>
                 )}
               </div>
             </div>
             <ComponentShowcase result={activeSystem} />
+          </div>
+        ) : activeSystem && activeTab === 'Stories' ? (
+          <div style={{ maxWidth: 900, margin: '0 auto' }}>
+            <Stories result={activeSystem} />
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 300, gap: 12 }}>

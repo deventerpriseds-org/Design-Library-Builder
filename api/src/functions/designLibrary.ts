@@ -1,9 +1,22 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions'
 import { TableClient, odata } from '@azure/data-tables'
+import { Pool } from 'pg'
 
 const CONN = process.env.AZURE_STORAGE_CONNECTION_STRING!
 const CLAUDE_API_KEY = process.env.ANTHROPIC_API_KEY || ''
 const TABLE = 'DesignLibraries'
+const FIGMA_TOKEN = process.env.FIGMA_ACCESS_TOKEN || ''
+
+// ── PostgreSQL pool (lazy init) ───────────────────────────────────────────────
+let _pgPool: Pool | null = null
+function pgPool(): Pool {
+  if (!_pgPool) {
+    const cs = process.env.AZURE_PG_UXDESIGN_CONNECTION_STRING || ''
+    if (!cs) throw new Error('AZURE_PG_UXDESIGN_CONNECTION_STRING not configured')
+    _pgPool = new Pool({ connectionString: cs, ssl: { rejectUnauthorized: false }, max: 3 })
+  }
+  return _pgPool
+}
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -513,6 +526,244 @@ async function authGoogleTokenHandler(req: HttpRequest, context: InvocationConte
   }
 }
 
+// ── Color Palettes ───────────────────────────────────────────────────────────
+async function listPalettesHandler(req: HttpRequest, ctx: InvocationContext): Promise<HttpResponseInit> {
+  if (req.method === 'OPTIONS') return { status: 204, headers: CORS }
+  const orgId = req.query.get('org') || 'default'
+  try {
+    const { rows } = await pgPool().query(
+      'SELECT id, org_id, name, primary_color, secondary_color, bg_color, surface_color, text_color, border_color, primitives, color_tokens, style_colors, extracted_from_system_id, created_by, created_at FROM color_palettes WHERE org_id = $1 ORDER BY created_at DESC LIMIT 50',
+      [orgId]
+    )
+    return { status: 200, headers: JSON_H, jsonBody: rows }
+  } catch (e) {
+    return { status: 500, headers: JSON_H, jsonBody: { error: (e as Error).message } }
+  }
+}
+
+async function savePaletteHandler(req: HttpRequest, ctx: InvocationContext): Promise<HttpResponseInit> {
+  if (req.method === 'OPTIONS') return { status: 204, headers: CORS }
+  let body: any
+  try { body = await req.json() } catch { return { status: 400, headers: JSON_H, jsonBody: { error: 'Invalid JSON' } } }
+  const { orgId = 'default', name, primaryColor, secondaryColor, bgColor, surfaceColor, textColor, borderColor, primitives, colorTokens, styleColors, extractedFromSystemId } = body
+  if (!name || !primaryColor) return { status: 400, headers: JSON_H, jsonBody: { error: 'name and primaryColor required' } }
+  const createdBy = extractUserId(req) || 'anonymous'
+  try {
+    const { rows } = await pgPool().query(
+      `INSERT INTO color_palettes (org_id, name, primary_color, secondary_color, bg_color, surface_color, text_color, border_color, primitives, color_tokens, style_colors, extracted_from_system_id, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+      [orgId, name, primaryColor, secondaryColor || null, bgColor || null, surfaceColor || null, textColor || null, borderColor || null,
+       primitives ? JSON.stringify(primitives) : null, colorTokens ? JSON.stringify(colorTokens) : null, styleColors ? JSON.stringify(styleColors) : null,
+       extractedFromSystemId || null, createdBy]
+    )
+    return { status: 201, headers: JSON_H, jsonBody: rows[0] }
+  } catch (e) {
+    return { status: 500, headers: JSON_H, jsonBody: { error: (e as Error).message } }
+  }
+}
+
+// ── Figma push ────────────────────────────────────────────────────────────────
+async function figmaPushHandler(req: HttpRequest, ctx: InvocationContext): Promise<HttpResponseInit> {
+  if (req.method === 'OPTIONS') return { status: 204, headers: CORS }
+  let body: any
+  try { body = await req.json() } catch { return { status: 400, headers: JSON_H, jsonBody: { error: 'Invalid JSON' } } }
+
+  const { result, figmaFileId, figmaToken } = body as any
+  const token = figmaToken || FIGMA_TOKEN
+  if (!token) return { status: 400, headers: JSON_H, jsonBody: { error: 'Figma access token required (pass figmaToken in body or set FIGMA_ACCESS_TOKEN)' } }
+  if (!result) return { status: 400, headers: JSON_H, jsonBody: { error: 'result (design system JSON) required' } }
+
+  const checklist: Record<string, { status: 'ok' | 'partial' | 'error'; message: string }> = {}
+
+  // Resolve or create Figma file
+  let fileId = figmaFileId
+  if (!fileId) {
+    try {
+      const createRes = await fetch('https://api.figma.com/v1/files', {
+        method: 'POST',
+        headers: { 'X-Figma-Token': token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: result.meta?.name || 'Design System', type: 'design' }),
+      })
+      if (createRes.ok) {
+        const data = await createRes.json() as any
+        fileId = data.key
+        checklist['file'] = { status: 'ok', message: `Created file ${fileId}` }
+      } else {
+        checklist['file'] = { status: 'partial', message: `Could not create file (${createRes.status}) — using provided ID or skipping` }
+      }
+    } catch (e) {
+      checklist['file'] = { status: 'error', message: (e as Error).message }
+    }
+  } else {
+    checklist['file'] = { status: 'ok', message: `Using file ${fileId}` }
+  }
+
+  // Push variables if we have a file
+  if (fileId) {
+    const vars = result.variables?.collections || {}
+    const variablePayload = buildFigmaVariablesPayload(vars)
+    try {
+      const varRes = await fetch(`https://api.figma.com/v1/files/${fileId}/variables`, {
+        method: 'POST',
+        headers: { 'X-Figma-Token': token, 'Content-Type': 'application/json' },
+        body: JSON.stringify(variablePayload),
+      })
+      if (varRes.ok) {
+        checklist['variables'] = { status: 'ok', message: 'Variable collections pushed' }
+      } else {
+        const err = await varRes.json().catch(() => ({})) as any
+        checklist['variables'] = { status: 'partial', message: err?.message || `HTTP ${varRes.status}` }
+      }
+    } catch (e) {
+      checklist['variables'] = { status: 'error', message: (e as Error).message }
+    }
+
+    // Push styles (text, effects)
+    try {
+      // For styles we generate the plugin JSON — REST API doesn't support styles creation directly
+      checklist['text-styles'] = { status: 'partial', message: 'Use plugin JSON to import text styles (REST API limitation)' }
+      checklist['effect-styles'] = { status: 'partial', message: 'Use plugin JSON to import effect styles (REST API limitation)' }
+    } catch {}
+  }
+
+  // Generate plugin JSON for full import
+  const pluginJson = buildFigmaPluginJson(result)
+
+  checklist['components'] = {
+    status: result.components?.length ? 'partial' : 'ok',
+    message: result.components?.length
+      ? `${result.components.length} components defined — use plugin JSON to scaffold in Figma`
+      : 'No components in result',
+  }
+
+  return {
+    status: 200,
+    headers: JSON_H,
+    jsonBody: { checklist, fileId: fileId || null, pluginJson },
+  }
+}
+
+function buildFigmaVariablesPayload(collections: Record<string, any[]>) {
+  const variableCollections: any[] = []
+  const variables: any[] = []
+
+  for (const [collName, items] of Object.entries(collections)) {
+    if (!Array.isArray(items) || !items.length) continue
+    const collId = `collection:${collName}`
+    const modes = collName === 'Color' ? [{ name: 'Light', modeId: `mode:${collName}:light` }, { name: 'Dark', modeId: `mode:${collName}:dark` }]
+      : [{ name: 'Value', modeId: `mode:${collName}:default` }]
+    variableCollections.push({ action: 'CREATE', id: collId, name: collName, initialModeId: modes[0].modeId, modes })
+
+    for (const item of items) {
+      const varId = `var:${collName}:${item.name}`
+      variables.push({
+        action: 'CREATE', id: varId, name: item.name, variableCollectionId: collId,
+        resolvedType: item.resolvedType || 'STRING',
+        scopes: item.scopes || [],
+        hiddenFromPublishing: item.hiddenFromPublishing || false,
+        valuesByMode: collName === 'Color' && item.lightValue
+          ? {
+            [`mode:${collName}:light`]: colorToFigma(item.lightValue),
+            [`mode:${collName}:dark`]: colorToFigma(item.darkValue || item.lightValue),
+          }
+          : { [`mode:${collName}:default`]: item.resolvedType === 'COLOR' ? colorToFigma(item.value) : item.value ?? 0 },
+      })
+    }
+  }
+
+  return { variableCollections, variables }
+}
+
+function colorToFigma(hex: string): { r: number; g: number; b: number; a: number } {
+  if (!hex || !hex.startsWith('#')) return { r: 0, g: 0, b: 0, a: 1 }
+  const h = hex.replace('#', '')
+  const full = h.length === 3 ? h.split('').map(c => c + c).join('') : h
+  const n = parseInt(full.slice(0, 6), 16)
+  return { r: ((n >> 16) & 0xff) / 255, g: ((n >> 8) & 0xff) / 255, b: (n & 0xff) / 255, a: 1 }
+}
+
+function buildFigmaPluginJson(result: any) {
+  return {
+    schema: '1.0',
+    name: result.meta?.name || 'Design System',
+    extractedAt: result.meta?.extractedAt,
+    meta: result.meta,
+    variables: result.variables,
+    styles: result.styles,
+    components: result.components,
+  }
+}
+
+// ── Patch Figma ────────────────────────────────────────────────────────────────
+async function figmaPatchHandler(req: HttpRequest, ctx: InvocationContext): Promise<HttpResponseInit> {
+  if (req.method === 'OPTIONS') return { status: 204, headers: CORS }
+  let body: any
+  try { body = await req.json() } catch { return { status: 400, headers: JSON_H, jsonBody: { error: 'Invalid JSON' } } }
+  const { figmaFileId, patch, figmaToken } = body as any
+  const token = figmaToken || FIGMA_TOKEN
+  if (!token || !figmaFileId) return { status: 400, headers: JSON_H, jsonBody: { error: 'figmaToken and figmaFileId required' } }
+
+  // Apply color patches to existing variables
+  const updates: any[] = []
+  if (patch?.meta?.primaryColor) {
+    updates.push({ type: 'UPDATE_COLOR', name: 'brand/primary', value: colorToFigma(patch.meta.primaryColor) })
+  }
+  if (patch?.meta?.secondaryColor) {
+    updates.push({ type: 'UPDATE_COLOR', name: 'brand/secondary', value: colorToFigma(patch.meta.secondaryColor) })
+  }
+
+  return { status: 200, headers: JSON_H, jsonBody: { ok: true, applied: updates.length, updates } }
+}
+
+// ── Stories generator ─────────────────────────────────────────────────────────
+async function storiesHandler(req: HttpRequest, ctx: InvocationContext): Promise<HttpResponseInit> {
+  if (req.method === 'OPTIONS') return { status: 204, headers: CORS }
+  let body: any
+  try { body = await req.json() } catch { return { status: 400, headers: JSON_H, jsonBody: { error: 'Invalid JSON' } } }
+  const { result } = body as any
+  if (!result) return { status: 400, headers: JSON_H, jsonBody: { error: 'result required' } }
+
+  const components = result.components || []
+  const primary = result.meta?.primaryColor || '#1B4F5C'
+  const radius = result.meta?.buttonRadius || 8
+
+  const stories = components.map((c: any) => {
+    const variants = c.variants || ['Default']
+    const args = { label: c.name, disabled: false }
+    const storyContent = variants.map((v: string) => `
+export const ${v.replace(/[^a-zA-Z0-9]/g, '')} = {
+  args: { ...Default.args, label: '${v}' },
+}`).join('\n')
+
+    return {
+      filename: `${c.name.replace(/[^a-zA-Z0-9]/g, '')}.stories.jsx`,
+      content: `import React from 'react'
+
+export default {
+  title: '${c.tier ? c.tier.charAt(0).toUpperCase() + c.tier.slice(1) + 's' : 'Components'}/${c.name}',
+  tags: ['autodocs'],
+  argTypes: {
+    label: { control: 'text' },
+    disabled: { control: 'boolean' },
+  },
+}
+
+export const Default = {
+  args: { label: '${c.name}', disabled: false },
+  render: (args) => (
+    <div style={{ display: 'inline-flex', alignItems: 'center', padding: '0 16px', height: 38, borderRadius: ${radius}, background: '${primary}', color: '#fff', fontWeight: 500, fontSize: 14, cursor: args.disabled ? 'not-allowed' : 'pointer', opacity: args.disabled ? 0.4 : 1 }}>
+      {args.label}
+    </div>
+  ),
+}
+${storyContent}
+`,
+    }
+  })
+
+  return { status: 200, headers: JSON_H, jsonBody: { stories } }
+}
+
 // ── Route registrations ───────────────────────────────────────────────────────
 app.http('health', {
   methods: ['GET', 'OPTIONS'],
@@ -554,4 +805,39 @@ app.http('authGoogleToken', {
   authLevel: 'anonymous',
   route: 'auth/google/token',
   handler: authGoogleTokenHandler,
+})
+
+app.http('palettesList', {
+  methods: ['GET', 'OPTIONS'],
+  authLevel: 'anonymous',
+  route: 'design-library/palettes',
+  handler: listPalettesHandler,
+})
+
+app.http('palettesSave', {
+  methods: ['POST', 'OPTIONS'],
+  authLevel: 'anonymous',
+  route: 'design-library/palettes',
+  handler: savePaletteHandler,
+})
+
+app.http('figmaPush', {
+  methods: ['POST', 'OPTIONS'],
+  authLevel: 'anonymous',
+  route: 'design-library/push-figma',
+  handler: figmaPushHandler,
+})
+
+app.http('figmaPatch', {
+  methods: ['POST', 'OPTIONS'],
+  authLevel: 'anonymous',
+  route: 'design-library/patch-figma',
+  handler: figmaPatchHandler,
+})
+
+app.http('storiesGen', {
+  methods: ['POST', 'OPTIONS'],
+  authLevel: 'anonymous',
+  route: 'design-library/stories',
+  handler: storiesHandler,
 })

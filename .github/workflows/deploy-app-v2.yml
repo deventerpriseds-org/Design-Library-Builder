@@ -76,6 +76,61 @@ jobs:
           fi
           echo "base=$API_BASE" >> $GITHUB_OUTPUT
 
+      - name: Provision ux_design PostgreSQL and run migrations
+        id: pgdb
+        env:
+          PG_SERVER: ux-design-pg
+          PG_ADMIN_USER: Admin_uxdesign
+          PG_DB: ux_design
+        run: |
+          # Create Flexible Server if absent
+          EXISTS=$(az postgres flexible-server show \
+            --name $PG_SERVER \
+            --resource-group $RESOURCE_GROUP \
+            --query "name" -o tsv 2>/dev/null || echo "")
+          if [ -z "$EXISTS" ]; then
+            echo "Creating PostgreSQL Flexible Server: $PG_SERVER"
+            az postgres flexible-server create \
+              --name $PG_SERVER \
+              --resource-group $RESOURCE_GROUP \
+              --location eastus \
+              --admin-user $PG_ADMIN_USER \
+              --admin-password "${{ secrets.AZURE_PG_UXDESIGN_PASSWORD }}" \
+              --sku-name Standard_B1ms \
+              --tier Burstable \
+              --version 16 \
+              --public-access 0.0.0.0 \
+              --yes 2>/dev/null || true
+          fi
+          # Ensure database exists
+          az postgres flexible-server db create \
+            --server-name $PG_SERVER \
+            --resource-group $RESOURCE_GROUP \
+            --database-name $PG_DB 2>/dev/null || true
+          # Build connection string
+          HOST=$(az postgres flexible-server show \
+            --name $PG_SERVER \
+            --resource-group $RESOURCE_GROUP \
+            --query "fullyQualifiedDomainName" -o tsv 2>/dev/null || echo "")
+          CS="postgresql://$PG_ADMIN_USER:${{ secrets.AZURE_PG_UXDESIGN_PASSWORD }}@${HOST}:5432/$PG_DB?sslmode=require"
+          echo "::add-mask::$CS"
+          echo "connection_string=$CS" >> $GITHUB_OUTPUT
+          # Run migrations using psql if available
+          if command -v psql &>/dev/null && [ -n "$HOST" ]; then
+            PGPASSWORD="${{ secrets.AZURE_PG_UXDESIGN_PASSWORD }}" psql \
+              "host=$HOST port=5432 dbname=$PG_DB user=$PG_ADMIN_USER sslmode=require" \
+              -f api/migrations/ux_design.sql || true
+          fi
+
+      - name: Sync AZURE_PG_UXDESIGN_CONNECTION_STRING to Function App
+        if: steps.pgdb.outputs.connection_string != ''
+        run: |
+          az functionapp config appsettings set \
+            --name $FUNCTION_APP_NAME \
+            --resource-group $RESOURCE_GROUP \
+            --settings "AZURE_PG_UXDESIGN_CONNECTION_STRING=${{ steps.pgdb.outputs.connection_string }}" \
+            --output none
+
       - name: Build v2
         working-directory: v2
         env:

@@ -64,3 +64,57 @@ export async function saveDesignSystem(system) {
   if (!res.ok) throw new Error(`Save failed: ${res.status}`)
   return res.json()
 }
+
+// GET /design-library/palettes  — list org color palettes
+export async function listPalettes(orgId = 'default') {
+  const res = await fetch(`${API_BASE}/design-library/palettes?org=${encodeURIComponent(orgId)}`, { headers: authHeaders() })
+  if (!res.ok) return []
+  return res.json()
+}
+
+// POST /design-library/palettes  — save a color palette
+export async function savePalette(palette) {
+  const res = await fetch(`${API_BASE}/design-library/palettes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(palette),
+  })
+  if (!res.ok) throw new Error(`Palette save failed: ${res.status}`)
+  return res.json()
+}
+
+// POST /design-library/push-figma  — push design system to Figma
+export async function pushToFigma({ result, figmaFileId, figmaToken }) {
+  const res = await fetch(`${API_BASE}/design-library/push-figma`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ result, figmaFileId, figmaToken }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err?.error || `Push failed: ${res.status}`)
+  }
+  return res.json()
+}
+
+// POST /design-library/patch-figma  — apply tweak to Figma file
+export async function patchFigma({ figmaFileId, figmaToken, patch }) {
+  const res = await fetch(`${API_BASE}/design-library/patch-figma`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ figmaFileId, figmaToken, patch }),
+  })
+  if (!res.ok) return { ok: false }
+  return res.json()
+}
+
+// POST /design-library/stories  — generate story files for components
+export async function generateStories(result) {
+  const res = await fetch(`${API_BASE}/design-library/stories`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ result }),
+  })
+  if (!res.ok) return { stories: [] }
+  return res.json()
+}
