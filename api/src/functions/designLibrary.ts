@@ -970,7 +970,7 @@ async function imageUploadHandler(req: HttpRequest): Promise<HttpResponseInit> {
 
     const blobServiceClient = BlobServiceClient.fromConnectionString(CONN)
     const containerClient = blobServiceClient.getContainerClient(containerName)
-    await containerClient.createIfNotExists({ access: 'blob' })
+    await containerClient.createIfNotExists()
 
     const blockBlobClient = containerClient.getBlockBlobClient(blobName)
     await blockBlobClient.uploadData(filePart.body, {
