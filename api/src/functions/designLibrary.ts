@@ -765,13 +765,14 @@ ${storyContent}
 }
 
 // ── Figma webhook receiver ────────────────────────────────────────────────────
+// Reuses MICROSOFT_CLIENT_SECRET (= AZURE_CLIENT_SECRET) as the Figma passcode —
+// no new secret required. Writes events to Azure Table Storage so the scheduled
+// GitHub Action can pick them up without needing a GitHub PAT.
 async function figmaWebhookHandler(req: HttpRequest, ctx: InvocationContext): Promise<HttpResponseInit> {
   if (req.method === 'OPTIONS') return { status: 204, headers: CORS }
 
-  const FIGMA_PASSCODE = process.env.FIGMA_WEBHOOK_PASSCODE || ''
-  const GH_TOKEN = process.env.GITHUB_PAT || ''
-  const GH_REPO = process.env.GITHUB_REPO || 'deventerpriseds-org/Design-Library-Builder'
-  const GH_WORKFLOW_BRANCH = process.env.GITHUB_WORKFLOW_BRANCH || 'main'
+  // MICROSOFT_CLIENT_SECRET is already synced to the Function App via api-deploy.yml
+  const FIGMA_PASSCODE = process.env.FIGMA_WEBHOOK_PASSCODE || process.env.MICROSOFT_CLIENT_SECRET || ''
 
   let body: any
   try {
@@ -786,52 +787,37 @@ async function figmaWebhookHandler(req: HttpRequest, ctx: InvocationContext): Pr
     return { status: 401, headers: JSON_H, jsonBody: { error: 'Unauthorized' } }
   }
 
-  // Acknowledge PING events immediately
+  // Acknowledge PING events — Figma sends this when registering the webhook
   if (body.event_type === 'PING') {
-    ctx.log('Figma webhook PING received')
+    ctx.log('Figma webhook PING received — endpoint confirmed')
     return { status: 200, headers: JSON_H, jsonBody: { ok: true } }
   }
 
-  // Only act on LIBRARY_PUBLISH
+  // Only queue LIBRARY_PUBLISH events
   if (body.event_type !== 'LIBRARY_PUBLISH') {
     return { status: 200, headers: JSON_H, jsonBody: { ok: true, skipped: true } }
   }
 
-  ctx.log(`Figma LIBRARY_PUBLISH received for file ${body.file_key}`)
+  ctx.log(`Figma LIBRARY_PUBLISH received for file ${body.file_key} (${body.file_name})`)
 
-  // Fire GitHub repository_dispatch to trigger Storybook + Supernova sync
-  if (!GH_TOKEN) {
-    ctx.log('GITHUB_PAT not set — skipping dispatch')
-    return { status: 200, headers: JSON_H, jsonBody: { ok: true, dispatched: false, reason: 'no GH_PAT' } }
+  // Write to Azure Table Storage — scheduled GitHub Action polls this table
+  try {
+    const tableClient = TableClient.fromConnectionString(CONN, 'FigmaEvents')
+    await tableClient.createTable().catch(() => {}) // no-op if exists
+    await tableClient.upsertEntity({
+      partitionKey: 'LIBRARY_PUBLISH',
+      rowKey: `${Date.now()}-${body.file_key}`,
+      fileKey: body.file_key || '',
+      fileName: body.file_name || '',
+      processed: false,
+      triggeredAt: new Date().toISOString(),
+    })
+    ctx.log('Event queued in FigmaEvents table')
+    return { status: 200, headers: JSON_H, jsonBody: { ok: true, queued: true } }
+  } catch (e) {
+    ctx.log(`Failed to queue event: ${(e as Error).message}`)
+    return { status: 500, headers: JSON_H, jsonBody: { error: 'Failed to queue event' } }
   }
-
-  const dispatchRes = await fetch(`https://api.github.com/repos/${GH_REPO}/dispatches`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${GH_TOKEN}`,
-      'Accept': 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      event_type: 'figma-library-published',
-      client_payload: {
-        file_key: body.file_key,
-        file_name: body.file_name,
-        triggered_by: 'figma-webhook',
-        branch: GH_WORKFLOW_BRANCH,
-      },
-    }),
-  })
-
-  if (dispatchRes.ok || dispatchRes.status === 204) {
-    ctx.log('GitHub repository_dispatch fired successfully')
-    return { status: 200, headers: JSON_H, jsonBody: { ok: true, dispatched: true } }
-  }
-
-  const err = await dispatchRes.text().catch(() => '')
-  ctx.log(`GitHub dispatch failed: ${dispatchRes.status} ${err}`)
-  return { status: 200, headers: JSON_H, jsonBody: { ok: true, dispatched: false, error: err } }
 }
 
 // ── Route registrations ───────────────────────────────────────────────────────
