@@ -292,11 +292,19 @@ async function extractHandler(req: HttpRequest, context: InvocationContext): Pro
 
   const { name, primaryColor, images = [], urls = [], description = '' } = body as any
 
+  const IMAGE_URL_RE = /\.(png|jpe?g|gif|webp|svg)($|\?)/i
+  const imageUrls = urls.filter((u: string) => IMAGE_URL_RE.test(u))
+  const webUrls = urls.filter((u: string) => !IMAGE_URL_RE.test(u))
+
   const contentBlocks: any[] = []
   contentBlocks.push({
     type: 'text',
-    text: `App name: ${name || 'Unknown'}\nPrimary brand color hint: ${primaryColor || 'none'}\nDescription: ${description || 'none'}\nURLs provided: ${urls.join(', ') || 'none'}\n\nExtract the complete design system from the attached screenshots.`
+    text: `App name: ${name || 'Unknown'}\nPrimary brand color hint: ${primaryColor || 'none'}\nDescription: ${description || 'none'}\n${webUrls.length ? `Reference URLs: ${webUrls.join(', ')}\n` : ''}\nExtract the complete design system from the attached screenshots.`
   })
+
+  for (const url of imageUrls.slice(0, 20)) {
+    contentBlocks.push({ type: 'image', source: { type: 'url', url } })
+  }
 
   for (const img of images.slice(0, 20)) {
     const match = img.dataUrl?.match(/^data:(image\/[^;]+);base64,(.+)$/)
