@@ -92,10 +92,10 @@ export default function FigmaPush() {
       if (syncStorybook && state.result) {
         // Generate stories from the real extracted components, then commit to repo
         // so storybook-supernova.yml triggers on the push to storybook/stories/**
-        const libraryName = state.result.meta?.name || 'extracted'
-        const { stories } = await generateStories(state.result)
+        const { stories, libraryName } = await generateStories(state.result)
+        const libName = libraryName || state.result.meta?.name || 'extracted'
         if (stories?.length) {
-          const commitRes = await commitStories({ stories, libraryName })
+          const commitRes = await commitStories({ stories, libraryName: libName })
           dispatch({ type: 'SET_FIGMA_PUSH', result: {
             ...res,
             checklist: {

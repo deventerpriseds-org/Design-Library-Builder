@@ -721,6 +721,8 @@ async function figmaPatchHandler(req: HttpRequest, ctx: InvocationContext): Prom
 }
 
 // ── Stories generator ─────────────────────────────────────────────────────────
+// Stories are namespaced as {LibraryName}/{Tier}/{ComponentName} so that one
+// shared Storybook instance partitions multiple design libraries by sidebar group.
 async function storiesHandler(req: HttpRequest, ctx: InvocationContext): Promise<HttpResponseInit> {
   if (req.method === 'OPTIONS') return { status: 204, headers: CORS }
   let body: any
@@ -731,12 +733,16 @@ async function storiesHandler(req: HttpRequest, ctx: InvocationContext): Promise
   const components = result.components || []
   const primary = result.meta?.primaryColor || '#1B4F5C'
   const radius = result.meta?.buttonRadius || 8
+  // Library name becomes the top-level Storybook sidebar group and Supernova namespace
+  const libraryName = (result.meta?.name || 'Design System').replace(/[^a-zA-Z0-9 ]/g, '').trim()
 
   const stories = components.map((c: any) => {
+    const tier = c.tier ? c.tier.charAt(0).toUpperCase() + c.tier.slice(1) + 's' : 'Components'
+    // Namespace: LibraryName/Tier/ComponentName — partitions this library in the shared Storybook
+    const storyTitle = `${libraryName}/${tier}/${c.name}`
     const variants = c.variants || ['Default']
-    const args = { label: c.name, disabled: false }
     const storyContent = variants.map((v: string) => `
-export const ${v.replace(/[^a-zA-Z0-9]/g, '')} = {
+export const ${v.replace(/[^a-zA-Z0-9]/g, '') || 'Variant'} = {
   args: { ...Default.args, label: '${v}' },
 }`).join('\n')
 
@@ -745,8 +751,8 @@ export const ${v.replace(/[^a-zA-Z0-9]/g, '')} = {
       content: `import React from 'react'
 
 export default {
-  title: '${c.tier ? c.tier.charAt(0).toUpperCase() + c.tier.slice(1) + 's' : 'Components'}/${c.name}',
-  tags: ['autodocs'],
+  title: '${storyTitle}',
+  tags: ['autodocs', '${libraryName.toLowerCase().replace(/\s+/g, '-')}'],
   argTypes: {
     label: { control: 'text' },
     disabled: { control: 'boolean' },
@@ -766,7 +772,7 @@ ${storyContent}
     }
   })
 
-  return { status: 200, headers: JSON_H, jsonBody: { stories } }
+  return { status: 200, headers: JSON_H, jsonBody: { stories, libraryName } }
 }
 
 // ── Commit stories to repo → triggers storybook-supernova.yml workflow ───────
