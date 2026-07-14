@@ -83,6 +83,23 @@ export async function savePalette(palette) {
   return res.json()
 }
 
+// POST /design-library/upload  — upload an image file, returns { url } SAS URL
+// Avoids embedding large base64 blobs in the extract payload (causes 502s via proxy).
+export async function uploadImage(file) {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch(`${API_BASE}/design-library/upload`, {
+    method: 'POST',
+    headers: authHeaders(), // no Content-Type — browser sets multipart boundary
+    body: form,
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err?.error || `Upload failed: ${res.status}`)
+  }
+  return res.json() // { url, blobName }
+}
+
 // POST /design-library/push-figma  — push design system to Figma
 export async function pushToFigma({ result, figmaFileId, figmaToken, syncStorybook = true, syncSupernova = true }) {
   const res = await fetch(`${API_BASE}/design-library/push-figma`, {

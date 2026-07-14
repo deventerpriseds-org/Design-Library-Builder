@@ -121,13 +121,15 @@ export default function Extract() {
   async function runExtraction() {
     dispatch({ type: 'START_EXTRACT' })
     try {
-      const images = state.uploadedFiles.map((f) => ({ name: f.name, dataUrl: f.dataUrl }))
+      // Files uploaded to blob storage return blobUrl; legacy dataUrl files fall back to inline base64
+      const blobUrls = state.uploadedFiles.filter(f => f.blobUrl).map(f => f.blobUrl)
+      const inlineImages = state.uploadedFiles.filter(f => !f.blobUrl && f.dataUrl).map(f => f.dataUrl)
       const result = await extractDesign(
         {
           name: state.projectName,
           primaryColor: state.primaryColorHint,
-          images,
-          urls: state.inputUrls,
+          images: inlineImages,
+          urls: [...state.inputUrls, ...blobUrls],
           description: state.description,
         },
         (event) => dispatch({ type: 'LOG_CHUNK', event }),

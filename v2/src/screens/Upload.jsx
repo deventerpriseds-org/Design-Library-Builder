@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react'
 import { useApp, go } from '../state.jsx'
 import { signInMicrosoft, signInGoogle, providerReady } from '../auth.js'
+import { uploadImage } from '../api.js'
 
 export default function Upload() {
   const { state, dispatch } = useApp()
@@ -9,20 +10,26 @@ export default function Upload() {
   const [urlInput, setUrlInput] = useState('')
   const [authErr, setAuthErr] = useState('')
   const [signing, setSigning] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [uploadErr, setUploadErr] = useState('')
 
-  function onFiles(files) {
+  async function onFiles(files) {
+    const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'))
+    if (!imageFiles.length) return
+    setUploading(true)
+    setUploadErr('')
     const toAdd = []
-    Array.from(files).forEach((f) => {
-      if (!f.type.startsWith('image/')) return
-      const reader = new FileReader()
-      reader.onload = (e) => {
-        toAdd.push({ id: crypto.randomUUID(), name: f.name, dataUrl: e.target.result, type: f.type })
-        if (toAdd.length === files.length) {
-          dispatch({ type: 'SET_FILES', files: [...state.uploadedFiles, ...toAdd] })
-        }
+    for (const f of imageFiles) {
+      try {
+        const { url } = await uploadImage(f)
+        // Keep a local object URL for thumbnail preview; the blobUrl is what Extract sends
+        toAdd.push({ id: crypto.randomUUID(), name: f.name, previewUrl: URL.createObjectURL(f), blobUrl: url, type: f.type })
+      } catch (e) {
+        setUploadErr(`Upload failed for ${f.name}: ${e.message}`)
       }
-      reader.readAsDataURL(f)
-    })
+    }
+    if (toAdd.length) dispatch({ type: 'SET_FILES', files: [...state.uploadedFiles, ...toAdd] })
+    setUploading(false)
   }
 
   function addUrl() {
@@ -110,7 +117,7 @@ export default function Upload() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 10 }}>
             {state.uploadedFiles.map((f) => (
               <div key={f.id} style={{ position: 'relative', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--dlg-border)', background: 'var(--dlg-bg)' }}>
-                <img src={f.dataUrl} alt={f.name} style={{ width: '100%', height: 80, objectFit: 'cover', display: 'block' }} />
+                <img src={f.previewUrl || f.dataUrl} alt={f.name} style={{ width: '100%', height: 80, objectFit: 'cover', display: 'block' }} />
                 <div style={{ padding: '4px 6px', fontSize: 11, color: 'var(--dlg-text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</div>
                 <button onClick={(e) => { e.stopPropagation(); removeFile(f.id) }}
                   style={{ position: 'absolute', top: 4, right: 4, width: 20, height: 20, borderRadius: '50%',
@@ -180,8 +187,20 @@ export default function Upload() {
         </div>
       )}
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <button className="dlg-btn dlg-btn-primary" disabled={!canContinue} onClick={() => go('/extract')}
+      {uploadErr && (
+        <div style={{ fontSize: 13, color: 'var(--dlg-error)', padding: '8px 12px', background: 'var(--dlg-error-soft)', borderRadius: 6, marginBottom: 12 }}>
+          {uploadErr}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12 }}>
+        {uploading && (
+          <span style={{ fontSize: 13, color: 'var(--dlg-text-2)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div className="dlg-spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
+            Uploading…
+          </span>
+        )}
+        <button className="dlg-btn dlg-btn-primary" disabled={!canContinue || uploading} onClick={() => go('/extract')}
           style={{ height: 42, padding: '0 28px', fontSize: 15, gap: 8 }}>
           Extract Design System →
         </button>

@@ -1,5 +1,6 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions'
 import { TableClient, odata } from '@azure/data-tables'
+import { BlobServiceClient, generateBlobSASQueryParameters, BlobSASPermissions, StorageSharedKeyCredential } from '@azure/storage-blob'
 import { Pool } from 'pg'
 
 const CONN = process.env.AZURE_STORAGE_CONNECTION_STRING!
@@ -903,4 +904,115 @@ app.http('figmaWebhook', {
   authLevel: 'anonymous',
   route: 'figma-webhook',
   handler: figmaWebhookHandler,
+})
+
+// ── Image upload → Blob Storage ───────────────────────────────────────────────
+// POST /api/design-library/upload  multipart/form-data; field name = "file"
+// Returns { url } — a SAS URL valid for 1 hour that Claude's vision API can fetch.
+// Avoids embedding large base64 images in the extract JSON payload (which hits
+// Azure's ~1 MB request body proxy limit and causes 502s).
+async function imageUploadHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const cors = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+  }
+
+  if (req.method === 'OPTIONS') return { status: 204, headers: cors }
+
+  try {
+    const contentType = req.headers.get('content-type') || ''
+    const boundaryMatch = contentType.match(/boundary=([^\s;]+)/)
+    if (!boundaryMatch) {
+      return { status: 400, headers: cors, jsonBody: { error: 'Expected multipart/form-data' } }
+    }
+    const boundary = boundaryMatch[1]
+
+    // Read raw body as ArrayBuffer and parse multipart manually
+    const rawBuffer = await req.arrayBuffer()
+    const raw = Buffer.from(rawBuffer)
+
+    // Find the file part between boundaries
+    const boundaryBuf = Buffer.from(`--${boundary}`)
+    const parts: { headers: string; body: Buffer }[] = []
+    let pos = 0
+    while (pos < raw.length) {
+      const bStart = raw.indexOf(boundaryBuf, pos)
+      if (bStart === -1) break
+      pos = bStart + boundaryBuf.length
+      if (raw[pos] === 0x2d && raw[pos + 1] === 0x2d) break // --boundary--
+      if (raw[pos] === 0x0d) pos += 2 // skip \r\n
+      // Headers end at double CRLF
+      const headerEnd = raw.indexOf(Buffer.from('\r\n\r\n'), pos)
+      if (headerEnd === -1) break
+      const partHeaders = raw.slice(pos, headerEnd).toString()
+      pos = headerEnd + 4
+      // Body ends at next boundary
+      const nextBoundary = raw.indexOf(boundaryBuf, pos)
+      const bodyEnd = nextBoundary === -1 ? raw.length : nextBoundary - 2 // strip trailing \r\n
+      parts.push({ headers: partHeaders, body: raw.slice(pos, bodyEnd) })
+      pos = nextBoundary === -1 ? raw.length : nextBoundary
+    }
+
+    const filePart = parts.find(p => p.headers.includes('name="file"'))
+    if (!filePart) {
+      return { status: 400, headers: cors, jsonBody: { error: 'No "file" field in multipart body' } }
+    }
+
+    // Determine content type from part headers
+    const ctMatch = filePart.headers.match(/Content-Type:\s*([^\r\n]+)/i)
+    const mimeType = ctMatch ? ctMatch[1].trim() : 'image/png'
+    const ext = mimeType.includes('jpeg') || mimeType.includes('jpg') ? 'jpg'
+      : mimeType.includes('webp') ? 'webp'
+      : mimeType.includes('gif') ? 'gif' : 'png'
+
+    const blobName = `uploads/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+    const containerName = 'design-library-uploads'
+
+    const blobServiceClient = BlobServiceClient.fromConnectionString(CONN)
+    const containerClient = blobServiceClient.getContainerClient(containerName)
+    await containerClient.createIfNotExists({ access: 'blob' })
+
+    const blockBlobClient = containerClient.getBlockBlobClient(blobName)
+    await blockBlobClient.uploadData(filePart.body, {
+      blobHTTPHeaders: { blobContentType: mimeType },
+    })
+
+    // Generate SAS URL valid for 1 hour so Claude's vision API can fetch it
+    let url = blockBlobClient.url
+    try {
+      // Parse account name + key from connection string for SAS generation
+      const accountNameMatch = CONN.match(/AccountName=([^;]+)/)
+      const accountKeyMatch = CONN.match(/AccountKey=([^;]+)/)
+      if (accountNameMatch && accountKeyMatch) {
+        const sharedKey = new StorageSharedKeyCredential(accountNameMatch[1], accountKeyMatch[1])
+        const sasToken = generateBlobSASQueryParameters(
+          {
+            containerName,
+            blobName,
+            permissions: BlobSASPermissions.parse('r'),
+            expiresOn: new Date(Date.now() + 60 * 60 * 1000),
+          },
+          sharedKey
+        ).toString()
+        url = `${blockBlobClient.url}?${sasToken}`
+      }
+    } catch {
+      // Fall through — public blob URL still works if container is public
+    }
+
+    return {
+      status: 200,
+      headers: { ...cors, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, blobName }),
+    }
+  } catch (err: any) {
+    return { status: 500, headers: cors, jsonBody: { error: err.message } }
+  }
+}
+
+app.http('imageUpload', {
+  methods: ['POST', 'OPTIONS'],
+  authLevel: 'anonymous',
+  route: 'design-library/upload',
+  handler: imageUploadHandler,
 })
