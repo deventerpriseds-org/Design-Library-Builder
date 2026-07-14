@@ -203,6 +203,7 @@ jobs:
         env:
           SUPERNOVA_TOKEN: ${{ secrets.SUPERNOVA_TOKEN }}
           FIGMA_TOKEN: ${{ secrets.FIGMA_ACCESS_TOKEN }}
+          AZURE_STORAGE_CONNECTION_STRING: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
         run: |
           export NODE_PATH=/tmp/az-tables/node_modules
           # Get the most recent file key from the queued event
@@ -230,8 +231,6 @@ jobs:
               --figma-file-id "$FILE_KEY" \
             || echo "Note: token sync CLI command may differ — check Supernova docs"
           fi
-        env:
-          AZURE_STORAGE_CONNECTION_STRING: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
 
       - name: Mark Figma events as processed
         if: steps.check_events.outputs.trigger == 'schedule'
