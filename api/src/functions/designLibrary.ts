@@ -764,6 +764,76 @@ ${storyContent}
   return { status: 200, headers: JSON_H, jsonBody: { stories } }
 }
 
+// ── Figma webhook receiver ────────────────────────────────────────────────────
+async function figmaWebhookHandler(req: HttpRequest, ctx: InvocationContext): Promise<HttpResponseInit> {
+  if (req.method === 'OPTIONS') return { status: 204, headers: CORS }
+
+  const FIGMA_PASSCODE = process.env.FIGMA_WEBHOOK_PASSCODE || ''
+  const GH_TOKEN = process.env.GITHUB_PAT || ''
+  const GH_REPO = process.env.GITHUB_REPO || 'deventerpriseds-org/Design-Library-Builder'
+  const GH_WORKFLOW_BRANCH = process.env.GITHUB_WORKFLOW_BRANCH || 'main'
+
+  let body: any
+  try {
+    body = await req.json()
+  } catch {
+    return { status: 400, headers: JSON_H, jsonBody: { error: 'Invalid JSON' } }
+  }
+
+  // Validate Figma passcode
+  if (FIGMA_PASSCODE && body.passcode !== FIGMA_PASSCODE) {
+    ctx.log('Figma webhook: invalid passcode')
+    return { status: 401, headers: JSON_H, jsonBody: { error: 'Unauthorized' } }
+  }
+
+  // Acknowledge PING events immediately
+  if (body.event_type === 'PING') {
+    ctx.log('Figma webhook PING received')
+    return { status: 200, headers: JSON_H, jsonBody: { ok: true } }
+  }
+
+  // Only act on LIBRARY_PUBLISH
+  if (body.event_type !== 'LIBRARY_PUBLISH') {
+    return { status: 200, headers: JSON_H, jsonBody: { ok: true, skipped: true } }
+  }
+
+  ctx.log(`Figma LIBRARY_PUBLISH received for file ${body.file_key}`)
+
+  // Fire GitHub repository_dispatch to trigger Storybook + Supernova sync
+  if (!GH_TOKEN) {
+    ctx.log('GITHUB_PAT not set — skipping dispatch')
+    return { status: 200, headers: JSON_H, jsonBody: { ok: true, dispatched: false, reason: 'no GH_PAT' } }
+  }
+
+  const dispatchRes = await fetch(`https://api.github.com/repos/${GH_REPO}/dispatches`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${GH_TOKEN}`,
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      event_type: 'figma-library-published',
+      client_payload: {
+        file_key: body.file_key,
+        file_name: body.file_name,
+        triggered_by: 'figma-webhook',
+        branch: GH_WORKFLOW_BRANCH,
+      },
+    }),
+  })
+
+  if (dispatchRes.ok || dispatchRes.status === 204) {
+    ctx.log('GitHub repository_dispatch fired successfully')
+    return { status: 200, headers: JSON_H, jsonBody: { ok: true, dispatched: true } }
+  }
+
+  const err = await dispatchRes.text().catch(() => '')
+  ctx.log(`GitHub dispatch failed: ${dispatchRes.status} ${err}`)
+  return { status: 200, headers: JSON_H, jsonBody: { ok: true, dispatched: false, error: err } }
+}
+
 // ── Route registrations ───────────────────────────────────────────────────────
 app.http('health', {
   methods: ['GET', 'OPTIONS'],
@@ -840,4 +910,11 @@ app.http('storiesGen', {
   authLevel: 'anonymous',
   route: 'design-library/stories',
   handler: storiesHandler,
+})
+
+app.http('figmaWebhook', {
+  methods: ['POST', 'OPTIONS'],
+  authLevel: 'anonymous',
+  route: 'figma-webhook',
+  handler: figmaWebhookHandler,
 })

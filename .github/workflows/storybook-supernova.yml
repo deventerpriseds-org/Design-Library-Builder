@@ -1,0 +1,103 @@
+name: Storybook Build + Supernova Sync
+
+on:
+  # Triggered by Figma LIBRARY_PUBLISH webhook via Azure Function
+  repository_dispatch:
+    types: [figma-library-published]
+
+  # Triggered when story files are committed (extraction push lane)
+  push:
+    branches: [main, claude/figma-builder-app-copy-xeidub]
+    paths:
+      - 'v2/src/stories/**'
+      - 'storybook/**'
+
+  # Manual trigger for testing
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for manual run'
+        required: false
+        default: 'manual'
+
+env:
+  STORYBOOK_DIR: storybook
+  SUPERNOVA_WORKSPACE_ID: ${{ secrets.SUPERNOVA_WORKSPACE_ID }}
+
+jobs:
+  build_and_sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: storybook/package-lock.json
+
+      - name: Log trigger source
+        run: |
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            echo "Triggered by Figma LIBRARY_PUBLISH"
+            echo "File: ${{ github.event.client_payload.file_name }} (${{ github.event.client_payload.file_key }})"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            echo "Triggered by story file push"
+          else
+            echo "Manual trigger: ${{ github.event.inputs.reason }}"
+          fi
+
+      - name: Install Storybook dependencies
+        working-directory: ${{ env.STORYBOOK_DIR }}
+        run: npm ci
+
+      - name: Build Storybook
+        working-directory: ${{ env.STORYBOOK_DIR }}
+        env:
+          NODE_OPTIONS: --max_old_space_size=4096
+        run: npm run build-storybook
+
+      - name: Deploy Storybook to Azure Static Web Apps
+        id: swa_deploy
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_STORYBOOK }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: upload
+          app_location: ${{ env.STORYBOOK_DIR }}/storybook-static
+          output_location: ''
+          skip_app_build: true
+
+      - name: Install Supernova CLI
+        run: npm install -g @supernovaio/supernova-sdk @supernovaio/cli
+
+      - name: Sync stories to Supernova
+        env:
+          SUPERNOVA_TOKEN: ${{ secrets.SUPERNOVA_TOKEN }}
+        run: |
+          supernova import-storybook \
+            --token "$SUPERNOVA_TOKEN" \
+            --workspace "$SUPERNOVA_WORKSPACE_ID" \
+            --storybook-url "https://${{ steps.swa_deploy.outputs.static_web_app_url }}"
+
+      - name: Sync Figma tokens to Supernova
+        if: github.event_name == 'repository_dispatch'
+        env:
+          SUPERNOVA_TOKEN: ${{ secrets.SUPERNOVA_TOKEN }}
+          FIGMA_TOKEN: ${{ secrets.FIGMA_ACCESS_TOKEN }}
+        run: |
+          supernova sync-tokens \
+            --token "$SUPERNOVA_TOKEN" \
+            --workspace "$SUPERNOVA_WORKSPACE_ID" \
+            --figma-token "$FIGMA_TOKEN" \
+            --figma-file-id "${{ github.event.client_payload.file_key }}"
+
+      - name: Report sync status
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "✓ Storybook built and synced to Supernova"
+          else
+            echo "✗ Sync failed — check logs above"
+          fi

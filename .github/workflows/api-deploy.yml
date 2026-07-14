@@ -2,7 +2,7 @@ name: Deploy API to Azure Functions
 
 on:
   push:
-    branches: [main, claude/figma-design-library-generator-esrbk9]
+    branches: [main, claude/figma-design-library-generator-esrbk9, claude/figma-builder-app-copy-xeidub]
     paths:
       - 'api/**'
       - '.github/workflows/api-deploy.yml'
@@ -79,6 +79,10 @@ jobs:
               "MICROSOFT_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}" \
               "GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}" \
               "GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}" \
+              "FIGMA_WEBHOOK_PASSCODE=${{ secrets.FIGMA_WEBHOOK_PASSCODE }}" \
+              "GITHUB_PAT=${{ secrets.GH_PAT_DISPATCH }}" \
+              "GITHUB_REPO=deventerpriseds-org/Design-Library-Builder" \
+              "GITHUB_WORKFLOW_BRANCH=main" \
               "NODE_ENV=production"
 
       - name: Configure platform CORS
