@@ -84,11 +84,11 @@ export async function savePalette(palette) {
 }
 
 // POST /design-library/push-figma  — push design system to Figma
-export async function pushToFigma({ result, figmaFileId, figmaToken }) {
+export async function pushToFigma({ result, figmaFileId, figmaToken, syncStorybook = true, syncSupernova = true }) {
   const res = await fetch(`${API_BASE}/design-library/push-figma`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ result, figmaFileId, figmaToken }),
+    body: JSON.stringify({ result, figmaFileId, figmaToken, syncStorybook, syncSupernova }),
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))

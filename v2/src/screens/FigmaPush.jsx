@@ -11,6 +11,33 @@ const CATEGORIES = [
   { key: 'components', label: 'Components' },
 ]
 
+function SyncToggle({ on, onChange, label, description }) {
+  return (
+    <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', userSelect: 'none' }}>
+      <span
+        role="switch"
+        aria-checked={on}
+        onClick={onChange}
+        style={{
+          position: 'relative', width: 36, height: 20, borderRadius: 10, flexShrink: 0,
+          background: on ? 'var(--dlg-brand)' : 'var(--dlg-border)',
+          transition: 'background 0.2s', cursor: 'pointer',
+        }}
+      >
+        <span style={{
+          position: 'absolute', top: 2, left: 2, width: 16, height: 16, borderRadius: '50%',
+          background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+          transform: on ? 'translateX(16px)' : 'none', transition: 'transform 0.2s',
+        }} />
+      </span>
+      <span>
+        <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--dlg-text)', display: 'block' }}>{label}</span>
+        <span style={{ fontSize: 12, color: 'var(--dlg-text-3)' }}>{description}</span>
+      </span>
+    </label>
+  )
+}
+
 function StatusIcon({ status }) {
   if (status === 'ok') return <span style={{ color: '#16A34A', fontSize: 18 }}>✓</span>
   if (status === 'partial') return <span style={{ color: '#D97706', fontSize: 18 }}>⚠</span>
@@ -33,6 +60,8 @@ export default function FigmaPush() {
   const [pushing, setPushing] = useState(false)
   const [error, setError] = useState('')
   const [preview, setPreview] = useState(false)
+  const [syncStorybook, setSyncStorybook] = useState(true)
+  const [syncSupernova, setSyncSupernova] = useState(true)
   const result = state.figmaPushResult
 
   if (!state.result) {
@@ -57,7 +86,7 @@ export default function FigmaPush() {
     if (figmaToken) dispatch({ type: 'SET_FIGMA_TOKEN', token: figmaToken })
     const figmaFileId = parseFileId(figmaFileUrl) || state.figmaFileId
     try {
-      const res = await pushToFigma({ result: state.result, figmaFileId, figmaToken: figmaToken || state.figmaToken })
+      const res = await pushToFigma({ result: state.result, figmaFileId, figmaToken: figmaToken || state.figmaToken, syncStorybook, syncSupernova })
       dispatch({ type: 'SET_FIGMA_PUSH', result: res })
     } catch (e) {
       setError(e.message)
@@ -117,6 +146,24 @@ export default function FigmaPush() {
               />
             </div>
             {error && <div style={{ fontSize: 13, color: '#DC2626', padding: '8px 12px', background: '#FEE2E2', borderRadius: 6 }}>{error}</div>}
+
+            {/* Sync options */}
+            <div style={{ borderTop: '1px solid var(--dlg-border)', paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--dlg-text-2)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>After push</div>
+              <SyncToggle
+                on={syncStorybook}
+                onChange={() => setSyncStorybook(v => !v)}
+                label="Sync Storybook"
+                description="Rebuild and deploy Storybook stories to Azure"
+              />
+              <SyncToggle
+                on={syncSupernova}
+                onChange={() => setSyncSupernova(v => !v)}
+                label="Sync Supernova"
+                description="Push stories and Figma tokens to Supernova design docs"
+              />
+            </div>
+
             <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
               <button
                 className="dlg-btn dlg-btn-primary"
