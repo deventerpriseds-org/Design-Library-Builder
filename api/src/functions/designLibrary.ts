@@ -457,6 +457,7 @@ async function healthHandler(req: HttpRequest, context: InvocationContext): Prom
       ok: true,
       hasAnthropicKey: !!CLAUDE_API_KEY,
       hasStorageConn: !!CONN,
+      connKeys: CONN ? CONN.split(';').map(p => p.split('=')[0]).filter(Boolean) : [],
       ts: new Date().toISOString(),
     }
   }
