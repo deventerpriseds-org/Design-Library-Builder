@@ -1,0 +1,24 @@
+{
+  "name": "design-library-builder-storybook",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build -o storybook-static"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@storybook/addon-essentials": "^8.3.0",
+    "@storybook/addon-interactions": "^8.3.0",
+    "@storybook/addon-a11y": "^8.3.0",
+    "@storybook/react": "^8.3.0",
+    "@storybook/react-vite": "^8.3.0",
+    "@storybook/test": "^8.3.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "storybook": "^8.3.0",
+    "vite": "^5.4.19"
+  }
+}
