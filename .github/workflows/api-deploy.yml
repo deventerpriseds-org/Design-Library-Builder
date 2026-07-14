@@ -80,6 +80,9 @@ jobs:
               "GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}" \
               "GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}" \
               "FIGMA_WEBHOOK_PASSCODE=${{ secrets.AZURE_CLIENT_SECRET }}" \
+              "GH_PAT=${{ secrets.GH_PAT }}" \
+              "GH_REPO_OWNER=deventerpriseds-org" \
+              "GH_REPO_NAME=Design-Library-Builder" \
               "NODE_ENV=production"
 
       - name: Configure platform CORS

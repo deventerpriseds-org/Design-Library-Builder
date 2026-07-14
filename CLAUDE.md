@@ -52,7 +52,18 @@ az account set --subscription 09594120-1b35-4e21-84c6-451ac27175a3
 | `SUPERNOVA_WORKSPACE_ID` | Supernova workspace (or resolved dynamically from token) |
 | `Azure_admin_pw` | **⚠ note casing** — Postgres `Admin_eds` password → synced as `AZURE_PG_PASSWORD` |
 
+| `GH_PAT` | GitHub Personal Access Token with `contents:write` on this repo — used by `/commit-stories` to push story files and trigger the Storybook workflow |
+
 When adding a new secret: add it to GitHub secrets **and** to the `--settings` list in `.github/workflows/api-deploy.yml` (exact-name match — mismatch silently blanks the setting).
+
+## UAT / Testing Rules
+
+**Never pass UAT with placeholder, demo, fake, or assumed data.** Every test must flow through the real pipeline:
+- Extraction must use actual uploaded screenshots or a real Figma URL — not hardcoded mock results
+- Story commit must write real component files generated from the extraction result to the repo
+- Storybook build must include those committed files — not pre-written demo stories
+- Supernova sync must receive the live deployed Storybook URL with real content
+- Any endpoint test that uses `{}` or dummy data counts as a smoke test only, not UAT
 
 ## Deploy Commands
 
@@ -84,6 +95,7 @@ All on `https://design-library-builder-api.azurewebsites.net/api/`:
 | `GET  /design-library/saved` | List saved extractions |
 | `GET  /design-library/palettes` | List org palettes |
 | `POST /design-library/palettes` | Save org palette |
+| `POST /design-library/commit-stories` | Commit generated `.stories.jsx` files to repo via GitHub API → triggers Storybook build |
 | `POST /figma-webhook` | Receives Figma LIBRARY_PUBLISH events → queues to `FigmaEvents` table |
 | `POST /auth/session` | Auth session |
 | `POST /auth/google/token` | Google OAuth token exchange |

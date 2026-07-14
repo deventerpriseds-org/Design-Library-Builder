@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useApp, go } from '../state.jsx'
-import { pushToFigma } from '../api.js'
+import { pushToFigma, generateStories, commitStories } from '../api.js'
 import { ComponentShowcase } from './Showcase.jsx'
 
 const CATEGORIES = [
@@ -88,6 +88,25 @@ export default function FigmaPush() {
     try {
       const res = await pushToFigma({ result: state.result, figmaFileId, figmaToken: figmaToken || state.figmaToken, syncStorybook, syncSupernova })
       dispatch({ type: 'SET_FIGMA_PUSH', result: res })
+
+      if (syncStorybook && state.result) {
+        // Generate stories from the real extracted components, then commit to repo
+        // so storybook-supernova.yml triggers on the push to storybook/stories/**
+        const libraryName = state.result.meta?.name || 'extracted'
+        const { stories } = await generateStories(state.result)
+        if (stories?.length) {
+          const commitRes = await commitStories({ stories, libraryName })
+          dispatch({ type: 'SET_FIGMA_PUSH', result: {
+            ...res,
+            checklist: {
+              ...res.checklist,
+              storybook: commitRes.triggersWorkflow
+                ? { status: 'ok', message: `${commitRes.committed.length} stories committed → Storybook build triggered` }
+                : { status: 'error', message: `Story commit failed: ${commitRes.failed.join(', ')}` },
+            },
+          }})
+        }
+      }
     } catch (e) {
       setError(e.message)
     }
