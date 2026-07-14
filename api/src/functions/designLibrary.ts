@@ -457,7 +457,6 @@ async function healthHandler(req: HttpRequest, context: InvocationContext): Prom
       ok: true,
       hasAnthropicKey: !!CLAUDE_API_KEY,
       hasStorageConn: !!CONN,
-      connKeys: CONN ? CONN.split(';').map(p => p.split('=')[0]).filter(Boolean) : [],
       ts: new Date().toISOString(),
     }
   }
@@ -969,10 +968,10 @@ async function imageUploadHandler(req: HttpRequest): Promise<HttpResponseInit> {
     const blobName = `uploads/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
     const containerName = 'design-library-uploads'
 
+    // Container must be pre-created (account policy blocks createIfNotExists).
+    // The storybook-supernova workflow creates it on first workflow_dispatch run.
     const blobServiceClient = BlobServiceClient.fromConnectionString(CONN)
     const containerClient = blobServiceClient.getContainerClient(containerName)
-    await containerClient.createIfNotExists()
-
     const blockBlobClient = containerClient.getBlockBlobClient(blobName)
     await blockBlobClient.uploadData(filePart.body, {
       blobHTTPHeaders: { blobContentType: mimeType },

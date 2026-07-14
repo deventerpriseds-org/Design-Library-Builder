@@ -85,6 +85,16 @@ jobs:
           echo "No pending Figma events — skipping sync"
           exit 0
 
+      - name: Ensure upload blob container exists
+        env:
+          AZURE_STORAGE_CONNECTION_STRING: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
+        run: |
+          az storage container create \
+            --name design-library-uploads \
+            --connection-string "$AZURE_STORAGE_CONNECTION_STRING" \
+            --public-access off 2>/dev/null || true
+          echo "Container design-library-uploads ready"
+
       - name: Ensure Storybook Static Web App exists
         id: swa
         run: |
