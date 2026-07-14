@@ -74,12 +74,21 @@ All on `https://design-library-builder-api.azurewebsites.net/api/`:
 
 | Endpoint | Purpose |
 |----------|---------|
-| `POST /extract` | Run Claude design extraction on Figma URL |
-| `POST /push-figma` | Push extracted tokens back to Figma |
-| `POST /stories` | Generate Storybook story files from extraction result |
-| `POST /upload-image` | Image upload to blob storage (bypasses proxy body-size limit) |
+| `GET  /health` | Health + config status check |
+| `POST /design-library/extract` | Run Claude design extraction (streams NDJSON progress) |
+| `POST /design-library/push-figma` | Push extracted tokens back to Figma |
+| `POST /design-library/patch-figma` | Patch existing Figma tokens |
+| `POST /design-library/stories` | Generate Storybook story files from extraction result |
+| `POST /design-library/upload` | Image upload to blob storage (`multipart/form-data`) |
+| `POST /design-library/save` | Save extraction result |
+| `GET  /design-library/saved` | List saved extractions |
+| `GET  /design-library/palettes` | List org palettes |
+| `POST /design-library/palettes` | Save org palette |
 | `POST /figma-webhook` | Receives Figma LIBRARY_PUBLISH events → queues to `FigmaEvents` table |
-| `GET /health` | Health + config status check |
+| `POST /auth/session` | Auth session |
+| `POST /auth/google/token` | Google OAuth token exchange |
+
+> **Route prefix**: all design-library routes use `/design-library/` — NOT bare names like `/extract` or `/stories`.
 
 ## Pipeline Architecture
 
