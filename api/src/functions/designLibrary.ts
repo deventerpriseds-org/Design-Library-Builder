@@ -3,6 +3,8 @@ import { TableClient, odata } from '@azure/data-tables'
 import { BlobServiceClient, generateBlobSASQueryParameters, BlobSASPermissions, StorageSharedKeyCredential } from '@azure/storage-blob'
 import { Pool } from 'pg'
 
+app.setup({ enableHttpStream: true })
+
 const CONN = process.env.AZURE_STORAGE_CONNECTION_STRING!
 const CLAUDE_API_KEY = process.env.ANTHROPIC_API_KEY || ''
 const TABLE = 'DesignLibraries'
