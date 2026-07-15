@@ -499,11 +499,29 @@ async function extractAsyncHandler(req: HttpRequest, context: InvocationContext)
       const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': CLAUDE_API_KEY, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 64000, system: SYSTEM_PROMPT, messages: [{ role: 'user', content: contentBlocks }], stream: false }),
+        body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 32000, system: SYSTEM_PROMPT, messages: [{ role: 'user', content: contentBlocks }], stream: true }),
       })
       if (!anthropicRes.ok) throw new Error(`Anthropic ${anthropicRes.status}`)
-      const anthropicData = await anthropicRes.json() as any
-      const jsonBuf = anthropicData.content?.[0]?.text || ''
+      // Stream the response to avoid network-level timeouts on large non-streaming responses
+      let jsonBuf = ''
+      const reader = anthropicRes.body!.getReader()
+      const decoder = new TextDecoder()
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        const chunk = decoder.decode(value, { stream: true })
+        for (const line of chunk.split('\n')) {
+          if (!line.startsWith('data: ')) continue
+          const data = line.slice(6).trim()
+          if (data === '[DONE]') continue
+          try {
+            const ev = JSON.parse(data)
+            if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
+              jsonBuf += ev.delta.text
+            }
+          } catch { /* skip malformed lines */ }
+        }
+      }
       const clean = jsonBuf.replace(/^```json?\s*/i, '').replace(/```\s*$/, '').trim()
       const result = JSON.parse(clean)
       if (!result.meta) result.meta = {}
