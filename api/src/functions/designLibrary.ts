@@ -33,254 +33,236 @@ const JSON_H = { 'Content-Type': 'application/json', ...CORS }
 const STREAM_H = { 'Content-Type': 'application/x-ndjson', 'Transfer-Encoding': 'chunked', ...CORS }
 
 // ── Extraction prompt ────────────────────────────────────────────────────────
-const SYSTEM_PROMPT = `You are an expert design systems architect and Figma specialist. Given screenshots, URLs, and descriptions of an app, you extract and infer a COMPLETE, production-ready Figma design library specification.
+// ── Baseline design system (merged with Claude's brand diff) ─────────────────
+function buildBaseline(name: string, primaryColor: string, fontFamily: string) {
+  const p = primaryColor || '#6366F1'
+  const font = fontFamily || 'Inter'
+  return {
+    meta: {
+      name, primaryColor: p, secondaryColor: '#8B5CF6', bgColor: '#F9FAFB', surfaceColor: '#FFFFFF',
+      textColor: '#111827', borderColor: '#E5E7EB', buttonRadius: 6, cardRadius: 8, inputRadius: 6,
+      sidebarWidth: 240, fontFamily: font, monoFontFamily: 'JetBrains Mono',
+      inferenceMap: { primitives: 'inferred', colorTokens: 'inferred', spacingTokens: 'inferred', motionTokens: 'inferred', typography: 'inferred', textStyles: 'inferred', effectStyles: 'inferred', gridStyles: 'inferred', components: 'inferred', patterns: 'inferred' }
+    },
+    variables: {
+      collections: {
+        Primitives: [
+          { name: 'brand-50', value: '#EEF2FF', type: 'color', resolvedType: 'COLOR', scopes: ['FRAME_FILL'], hiddenFromPublishing: true },
+          { name: 'brand-100', value: '#E0E7FF', type: 'color', resolvedType: 'COLOR', scopes: ['FRAME_FILL'], hiddenFromPublishing: true },
+          { name: 'brand-200', value: '#C7D2FE', type: 'color', resolvedType: 'COLOR', scopes: ['FRAME_FILL'], hiddenFromPublishing: true },
+          { name: 'brand-300', value: '#A5B4FC', type: 'color', resolvedType: 'COLOR', scopes: ['FRAME_FILL'], hiddenFromPublishing: true },
+          { name: 'brand-400', value: '#818CF8', type: 'color', resolvedType: 'COLOR', scopes: ['FRAME_FILL'], hiddenFromPublishing: true },
+          { name: 'brand-500', value: p, type: 'color', resolvedType: 'COLOR', scopes: ['FRAME_FILL'], hiddenFromPublishing: true },
+          { name: 'brand-600', value: '#4F46E5', type: 'color', resolvedType: 'COLOR', scopes: ['FRAME_FILL'], hiddenFromPublishing: true },
+          { name: 'brand-700', value: '#4338CA', type: 'color', resolvedType: 'COLOR', scopes: ['FRAME_FILL'], hiddenFromPublishing: true },
+          { name: 'brand-800', value: '#3730A3', type: 'color', resolvedType: 'COLOR', scopes: ['FRAME_FILL'], hiddenFromPublishing: true },
+          { name: 'brand-900', value: '#312E81', type: 'color', resolvedType: 'COLOR', scopes: ['FRAME_FILL'], hiddenFromPublishing: true },
+          { name: 'neutral-0', value: '#FFFFFF', type: 'color', resolvedType: 'COLOR', scopes: ['FRAME_FILL'], hiddenFromPublishing: true },
+          { name: 'neutral-50', value: '#F9FAFB', type: 'color', resolvedType: 'COLOR', scopes: ['FRAME_FILL'], hiddenFromPublishing: true },
+          { name: 'neutral-100', value: '#F3F4F6', type: 'color', resolvedType: 'COLOR', scopes: ['FRAME_FILL'], hiddenFromPublishing: true },
+          { name: 'neutral-200', value: '#E5E7EB', type: 'color', resolvedType: 'COLOR', scopes: ['FRAME_FILL'], hiddenFromPublishing: true },
+          { name: 'neutral-300', value: '#D1D5DB', type: 'color', resolvedType: 'COLOR', scopes: ['FRAME_FILL'], hiddenFromPublishing: true },
+          { name: 'neutral-400', value: '#9CA3AF', type: 'color', resolvedType: 'COLOR', scopes: ['FRAME_FILL'], hiddenFromPublishing: true },
+          { name: 'neutral-500', value: '#6B7280', type: 'color', resolvedType: 'COLOR', scopes: ['FRAME_FILL'], hiddenFromPublishing: true },
+          { name: 'neutral-600', value: '#4B5563', type: 'color', resolvedType: 'COLOR', scopes: ['FRAME_FILL'], hiddenFromPublishing: true },
+          { name: 'neutral-700', value: '#374151', type: 'color', resolvedType: 'COLOR', scopes: ['FRAME_FILL'], hiddenFromPublishing: true },
+          { name: 'neutral-800', value: '#1F2937', type: 'color', resolvedType: 'COLOR', scopes: ['FRAME_FILL'], hiddenFromPublishing: true },
+          { name: 'neutral-900', value: '#111827', type: 'color', resolvedType: 'COLOR', scopes: ['FRAME_FILL'], hiddenFromPublishing: true },
+          { name: 'success-500', value: '#22C55E', type: 'color', resolvedType: 'COLOR', scopes: ['FRAME_FILL'], hiddenFromPublishing: true },
+          { name: 'warning-500', value: '#F59E0B', type: 'color', resolvedType: 'COLOR', scopes: ['FRAME_FILL'], hiddenFromPublishing: true },
+          { name: 'error-500', value: '#EF4444', type: 'color', resolvedType: 'COLOR', scopes: ['FRAME_FILL'], hiddenFromPublishing: true },
+          { name: 'info-500', value: '#3B82F6', type: 'color', resolvedType: 'COLOR', scopes: ['FRAME_FILL'], hiddenFromPublishing: true },
+        ],
+        Color: [
+          { name: 'action/primary', lightValue: p, darkValue: '#818CF8', lightAlias: 'brand-500', darkAlias: 'brand-400', resolvedType: 'COLOR', scopes: ['FRAME_FILL', 'SHAPE_FILL'], description: 'Primary action color' },
+          { name: 'action/secondary', lightValue: '#8B5CF6', darkValue: '#A78BFA', lightAlias: 'brand-600', darkAlias: 'brand-300', resolvedType: 'COLOR', scopes: ['FRAME_FILL', 'SHAPE_FILL'], description: 'Secondary action color' },
+          { name: 'surface/page', lightValue: '#F9FAFB', darkValue: '#111827', lightAlias: 'neutral-50', darkAlias: 'neutral-900', resolvedType: 'COLOR', scopes: ['FRAME_FILL'], description: 'Page background' },
+          { name: 'surface/card', lightValue: '#FFFFFF', darkValue: '#1F2937', lightAlias: 'neutral-0', darkAlias: 'neutral-800', resolvedType: 'COLOR', scopes: ['FRAME_FILL'], description: 'Card surface' },
+          { name: 'surface/overlay', lightValue: 'rgba(0,0,0,0.5)', darkValue: 'rgba(0,0,0,0.7)', lightAlias: '', darkAlias: '', resolvedType: 'COLOR', scopes: ['FRAME_FILL'], description: 'Modal overlay' },
+          { name: 'text/primary', lightValue: '#111827', darkValue: '#F9FAFB', lightAlias: 'neutral-900', darkAlias: 'neutral-50', resolvedType: 'COLOR', scopes: ['TEXT_FILL'], description: 'Primary text' },
+          { name: 'text/secondary', lightValue: '#6B7280', darkValue: '#9CA3AF', lightAlias: 'neutral-500', darkAlias: 'neutral-400', resolvedType: 'COLOR', scopes: ['TEXT_FILL'], description: 'Secondary text' },
+          { name: 'text/disabled', lightValue: '#9CA3AF', darkValue: '#4B5563', lightAlias: 'neutral-400', darkAlias: 'neutral-600', resolvedType: 'COLOR', scopes: ['TEXT_FILL'], description: 'Disabled text' },
+          { name: 'border/default', lightValue: '#E5E7EB', darkValue: '#374151', lightAlias: 'neutral-200', darkAlias: 'neutral-700', resolvedType: 'COLOR', scopes: ['STROKE_COLOR'], description: 'Default border' },
+          { name: 'border/focus', lightValue: p, darkValue: '#818CF8', lightAlias: 'brand-500', darkAlias: 'brand-400', resolvedType: 'COLOR', scopes: ['STROKE_COLOR'], description: 'Focus ring' },
+          { name: 'status/success', lightValue: '#22C55E', darkValue: '#4ADE80', lightAlias: 'success-500', darkAlias: 'success-500', resolvedType: 'COLOR', scopes: ['FRAME_FILL', 'TEXT_FILL'], description: 'Success state' },
+          { name: 'status/warning', lightValue: '#F59E0B', darkValue: '#FCD34D', lightAlias: 'warning-500', darkAlias: 'warning-500', resolvedType: 'COLOR', scopes: ['FRAME_FILL', 'TEXT_FILL'], description: 'Warning state' },
+          { name: 'status/error', lightValue: '#EF4444', darkValue: '#F87171', lightAlias: 'error-500', darkAlias: 'error-500', resolvedType: 'COLOR', scopes: ['FRAME_FILL', 'TEXT_FILL'], description: 'Error state' },
+          { name: 'status/info', lightValue: '#3B82F6', darkValue: '#60A5FA', lightAlias: 'info-500', darkAlias: 'info-500', resolvedType: 'COLOR', scopes: ['FRAME_FILL', 'TEXT_FILL'], description: 'Info state' },
+        ],
+        Spacing: [
+          { name: '0', value: 0, resolvedType: 'FLOAT', scopes: ['GAP', 'WIDTH_HEIGHT'], description: 'No space' },
+          { name: '1', value: 4, resolvedType: 'FLOAT', scopes: ['GAP', 'WIDTH_HEIGHT'], description: '4px' },
+          { name: '2', value: 8, resolvedType: 'FLOAT', scopes: ['GAP', 'WIDTH_HEIGHT'], description: '8px' },
+          { name: '3', value: 12, resolvedType: 'FLOAT', scopes: ['GAP', 'WIDTH_HEIGHT'], description: '12px' },
+          { name: '4', value: 16, resolvedType: 'FLOAT', scopes: ['GAP', 'WIDTH_HEIGHT'], description: '16px' },
+          { name: '5', value: 24, resolvedType: 'FLOAT', scopes: ['GAP', 'WIDTH_HEIGHT'], description: '24px' },
+          { name: '6', value: 32, resolvedType: 'FLOAT', scopes: ['GAP', 'WIDTH_HEIGHT'], description: '32px' },
+          { name: '7', value: 48, resolvedType: 'FLOAT', scopes: ['GAP', 'WIDTH_HEIGHT'], description: '48px' },
+          { name: '8', value: 64, resolvedType: 'FLOAT', scopes: ['GAP', 'WIDTH_HEIGHT'], description: '64px' },
+          { name: '9', value: 96, resolvedType: 'FLOAT', scopes: ['GAP', 'WIDTH_HEIGHT'], description: '96px' },
+        ],
+        Motion: [
+          { name: 'duration/instant', value: 0, resolvedType: 'FLOAT', description: '0ms' },
+          { name: 'duration/fast', value: 100, resolvedType: 'FLOAT', description: '100ms' },
+          { name: 'duration/base', value: 200, resolvedType: 'FLOAT', description: '200ms' },
+          { name: 'duration/slow', value: 300, resolvedType: 'FLOAT', description: '300ms' },
+          { name: 'duration/slower', value: 500, resolvedType: 'FLOAT', description: '500ms' },
+          { name: 'easing/ease-out', value: 'cubic-bezier(0,0,0.2,1)', resolvedType: 'STRING', description: 'Standard ease-out' },
+          { name: 'easing/ease-in', value: 'cubic-bezier(0.4,0,1,1)', resolvedType: 'STRING', description: 'Standard ease-in' },
+          { name: 'easing/spring', value: 'cubic-bezier(0.34,1.56,0.64,1)', resolvedType: 'STRING', description: 'Springy overshoot' },
+        ],
+        Typography: [
+          { name: 'family/sans', value: font, resolvedType: 'STRING', scopes: ['FONT_FAMILY'], description: 'Primary sans-serif font' },
+          { name: 'family/mono', value: 'JetBrains Mono', resolvedType: 'STRING', scopes: ['FONT_FAMILY'], description: 'Monospace font' },
+          { name: 'size/xs', value: 11, resolvedType: 'FLOAT', scopes: ['FONT_SIZE'], description: '11px' },
+          { name: 'size/sm', value: 13, resolvedType: 'FLOAT', scopes: ['FONT_SIZE'], description: '13px' },
+          { name: 'size/base', value: 14, resolvedType: 'FLOAT', scopes: ['FONT_SIZE'], description: '14px' },
+          { name: 'size/md', value: 16, resolvedType: 'FLOAT', scopes: ['FONT_SIZE'], description: '16px' },
+          { name: 'size/lg', value: 18, resolvedType: 'FLOAT', scopes: ['FONT_SIZE'], description: '18px' },
+          { name: 'size/xl', value: 20, resolvedType: 'FLOAT', scopes: ['FONT_SIZE'], description: '20px' },
+          { name: 'size/2xl', value: 24, resolvedType: 'FLOAT', scopes: ['FONT_SIZE'], description: '24px' },
+          { name: 'size/3xl', value: 30, resolvedType: 'FLOAT', scopes: ['FONT_SIZE'], description: '30px' },
+          { name: 'size/4xl', value: 36, resolvedType: 'FLOAT', scopes: ['FONT_SIZE'], description: '36px' },
+        ],
+        'Component Tokens': [],
+      }
+    },
+    styles: {
+      text: [
+        { name: 'Display', fontFamily: font, fontStyle: 'Bold', fontSize: 48, fontWeight: 700, lineHeight: { value: 56, unit: 'PIXELS' }, letterSpacing: { value: -0.5, unit: 'PIXELS' }, paragraphSpacing: 0, usage: 'Hero headings', tier: 'display' },
+        { name: 'H1', fontFamily: font, fontStyle: 'Bold', fontSize: 36, fontWeight: 700, lineHeight: { value: 44, unit: 'PIXELS' }, letterSpacing: { value: -0.3, unit: 'PIXELS' }, paragraphSpacing: 0, usage: 'Page titles', tier: 'heading' },
+        { name: 'H2', fontFamily: font, fontStyle: 'Semi Bold', fontSize: 28, fontWeight: 600, lineHeight: { value: 36, unit: 'PIXELS' }, letterSpacing: { value: -0.2, unit: 'PIXELS' }, paragraphSpacing: 0, usage: 'Section titles', tier: 'heading' },
+        { name: 'H3', fontFamily: font, fontStyle: 'Semi Bold', fontSize: 22, fontWeight: 600, lineHeight: { value: 30, unit: 'PIXELS' }, letterSpacing: { value: -0.1, unit: 'PIXELS' }, paragraphSpacing: 0, usage: 'Card headings', tier: 'heading' },
+        { name: 'H4', fontFamily: font, fontStyle: 'Medium', fontSize: 18, fontWeight: 500, lineHeight: { value: 26, unit: 'PIXELS' }, letterSpacing: { value: 0, unit: 'PIXELS' }, paragraphSpacing: 0, usage: 'Sub-section headings', tier: 'heading' },
+        { name: 'Body LG', fontFamily: font, fontStyle: 'Regular', fontSize: 16, fontWeight: 400, lineHeight: { value: 24, unit: 'PIXELS' }, letterSpacing: { value: 0, unit: 'PIXELS' }, paragraphSpacing: 16, usage: 'Lead body copy', tier: 'body' },
+        { name: 'Body', fontFamily: font, fontStyle: 'Regular', fontSize: 14, fontWeight: 400, lineHeight: { value: 22, unit: 'PIXELS' }, letterSpacing: { value: 0, unit: 'PIXELS' }, paragraphSpacing: 14, usage: 'Default body copy', tier: 'body' },
+        { name: 'Body SM', fontFamily: font, fontStyle: 'Regular', fontSize: 13, fontWeight: 400, lineHeight: { value: 20, unit: 'PIXELS' }, letterSpacing: { value: 0, unit: 'PIXELS' }, paragraphSpacing: 12, usage: 'Small body copy', tier: 'body' },
+        { name: 'Label', fontFamily: font, fontStyle: 'Semi Bold', fontSize: 12, fontWeight: 600, lineHeight: { value: 18, unit: 'PIXELS' }, letterSpacing: { value: 0.1, unit: 'PIXELS' }, paragraphSpacing: 0, usage: 'Form labels, tags', tier: 'label' },
+        { name: 'Caption', fontFamily: font, fontStyle: 'Regular', fontSize: 11, fontWeight: 400, lineHeight: { value: 16, unit: 'PIXELS' }, letterSpacing: { value: 0.1, unit: 'PIXELS' }, paragraphSpacing: 0, usage: 'Timestamps, helper text', tier: 'caption' },
+        { name: 'Code', fontFamily: 'JetBrains Mono', fontStyle: 'Regular', fontSize: 13, fontWeight: 400, lineHeight: { value: 20, unit: 'PIXELS' }, letterSpacing: { value: 0, unit: 'PIXELS' }, paragraphSpacing: 0, usage: 'Inline code, snippets', tier: 'code' },
+      ],
+      color: [
+        { name: 'Brand/Primary', color: p, usage: 'Primary brand color swatch' },
+        { name: 'Status/Success', color: '#22C55E', usage: 'Success state' },
+        { name: 'Status/Warning', color: '#F59E0B', usage: 'Warning state' },
+        { name: 'Status/Error', color: '#EF4444', usage: 'Error state' },
+      ],
+      effects: [
+        { name: 'Shadow/SM', type: 'DROP_SHADOW', radius: 4, spread: 0, color: 'rgba(0,0,0,0.06)', offsetX: 0, offsetY: 1, css: '0 1px 4px rgba(0,0,0,0.06)' },
+        { name: 'Shadow/MD', type: 'DROP_SHADOW', radius: 8, spread: -2, color: 'rgba(0,0,0,0.10)', offsetX: 0, offsetY: 4, css: '0 4px 8px -2px rgba(0,0,0,0.10)' },
+        { name: 'Shadow/LG', type: 'DROP_SHADOW', radius: 16, spread: -4, color: 'rgba(0,0,0,0.12)', offsetX: 0, offsetY: 8, css: '0 8px 16px -4px rgba(0,0,0,0.12)' },
+        { name: 'Shadow/XL', type: 'DROP_SHADOW', radius: 32, spread: -8, color: 'rgba(0,0,0,0.14)', offsetX: 0, offsetY: 16, css: '0 16px 32px -8px rgba(0,0,0,0.14)' },
+      ],
+      grids: [
+        { name: 'Desktop/12-col', pattern: 'COLUMNS', count: 12, gutter: 24, margin: 32, alignment: 'STRETCH', breakpoint: '1440px' },
+        { name: 'Tablet/8-col', pattern: 'COLUMNS', count: 8, gutter: 16, margin: 24, alignment: 'STRETCH', breakpoint: '768px' },
+        { name: 'Mobile/4-col', pattern: 'COLUMNS', count: 4, gutter: 12, margin: 16, alignment: 'STRETCH', breakpoint: '375px' },
+      ]
+    },
+    components: [
+      { name: 'Button', tier: 'atom', category: 'Actions', variants: ['Primary', 'Secondary', 'Ghost', 'Destructive', 'Link'], states: ['Default', 'Hover', 'Pressed', 'Disabled', 'Loading'], variantProperties: { Type: ['Primary', 'Secondary', 'Ghost', 'Destructive', 'Link'], Size: ['SM', 'MD', 'LG'] }, componentProperties: { Label: { type: 'TEXT', default: 'Button' }, HasIcon: { type: 'BOOLEAN', default: 'false' } }, tokenBindings: ['action/primary', 'action/secondary'], styleBindings: ['Label'], variableBindings: { fill: 'action/primary', radius: 'size/base' } },
+      { name: 'Input', tier: 'atom', category: 'Forms', variants: ['Default', 'Error', 'Success', 'Disabled'], states: ['Empty', 'Focused', 'Filled', 'Disabled'], variantProperties: { State: ['Default', 'Error', 'Success', 'Disabled'], Type: ['Text', 'Password', 'Search', 'Number'] }, componentProperties: { Placeholder: { type: 'TEXT', default: 'Enter value…' }, HasLabel: { type: 'BOOLEAN', default: 'true' } }, tokenBindings: ['border/default', 'border/focus'], styleBindings: ['Body'], variableBindings: { stroke: 'border/default' } },
+      { name: 'Checkbox', tier: 'atom', category: 'Forms', variants: ['Unchecked', 'Checked', 'Indeterminate', 'Disabled'], states: ['Default', 'Hover', 'Focused', 'Disabled'], variantProperties: { State: ['Unchecked', 'Checked', 'Indeterminate', 'Disabled'] }, componentProperties: { Label: { type: 'TEXT', default: 'Label' } }, tokenBindings: ['action/primary', 'border/default'], styleBindings: ['Label'], variableBindings: { fill: 'action/primary' } },
+      { name: 'Badge', tier: 'atom', category: 'Status', variants: ['Brand', 'Success', 'Warning', 'Error', 'Info', 'Neutral', 'Outline'], states: ['Default'], variantProperties: { Variant: ['Brand', 'Success', 'Warning', 'Error', 'Info', 'Neutral'] }, componentProperties: { Label: { type: 'TEXT', default: 'Badge' } }, tokenBindings: ['status/success', 'status/error', 'status/warning'], styleBindings: ['Label'], variableBindings: {} },
+      { name: 'Avatar', tier: 'atom', category: 'Identity', variants: ['Image', 'Initials', 'Icon', 'Placeholder'], states: ['Default', 'WithStatus'], variantProperties: { Type: ['Image', 'Initials', 'Icon'], Size: ['XS', 'SM', 'MD', 'LG', 'XL'] }, componentProperties: { Initials: { type: 'TEXT', default: 'AB' } }, tokenBindings: ['action/primary', 'surface/card'], styleBindings: ['Label'], variableBindings: {} },
+      { name: 'Card', tier: 'molecule', category: 'Layout', variants: ['Basic', 'Elevated', 'Outlined', 'Interactive'], states: ['Default', 'Hover'], variantProperties: { Variant: ['Basic', 'Elevated', 'Outlined', 'Interactive'] }, componentProperties: { HasHeader: { type: 'BOOLEAN', default: 'true' }, HasFooter: { type: 'BOOLEAN', default: 'false' } }, tokenBindings: ['surface/card', 'border/default'], styleBindings: ['H4', 'Body'], variableBindings: { fill: 'surface/card', stroke: 'border/default' } },
+      { name: 'Alert', tier: 'molecule', category: 'Feedback', variants: ['Info', 'Success', 'Warning', 'Error'], states: ['Default', 'Dismissible'], variantProperties: { Type: ['Info', 'Success', 'Warning', 'Error'] }, componentProperties: { Title: { type: 'TEXT', default: 'Alert title' }, Message: { type: 'TEXT', default: 'Alert message' }, Dismissible: { type: 'BOOLEAN', default: 'false' } }, tokenBindings: ['status/success', 'status/error', 'status/warning', 'status/info'], styleBindings: ['Label', 'Body SM'], variableBindings: {} },
+      { name: 'Table', tier: 'organism', category: 'Data', variants: ['Default', 'Striped', 'Compact'], states: ['Default', 'Loading', 'Empty'], variantProperties: { Density: ['Default', 'Compact', 'Comfortable'] }, componentProperties: { HasSelection: { type: 'BOOLEAN', default: 'false' }, HasPagination: { type: 'BOOLEAN', default: 'true' } }, tokenBindings: ['border/default', 'surface/card', 'text/primary'], styleBindings: ['Body', 'Label'], variableBindings: { fill: 'surface/card', stroke: 'border/default' } },
+      { name: 'Modal', tier: 'organism', category: 'Overlays', variants: ['SM', 'MD', 'LG', 'Full'], states: ['Open', 'Closing'], variantProperties: { Size: ['SM', 'MD', 'LG', 'Full'] }, componentProperties: { Title: { type: 'TEXT', default: 'Modal title' }, HasClose: { type: 'BOOLEAN', default: 'true' } }, tokenBindings: ['surface/card', 'surface/overlay', 'border/default'], styleBindings: ['H3', 'Body'], variableBindings: { fill: 'surface/card' } },
+      { name: 'Navigation Bar', tier: 'organism', category: 'Navigation', variants: ['Default', 'Compact'], states: ['Default', 'Scrolled'], variantProperties: { Variant: ['Default', 'Compact'] }, componentProperties: { HasLogo: { type: 'BOOLEAN', default: 'true' }, HasSearch: { type: 'BOOLEAN', default: 'false' } }, tokenBindings: ['surface/card', 'text/primary', 'border/default'], styleBindings: ['Label', 'Body'], variableBindings: { fill: 'surface/card', stroke: 'border/default' } },
+      { name: 'Sidebar', tier: 'organism', category: 'Navigation', variants: ['Default', 'Collapsed', 'Overlay'], states: ['Default', 'Collapsed'], variantProperties: { State: ['Default', 'Collapsed', 'Overlay'] }, componentProperties: { HasLogo: { type: 'BOOLEAN', default: 'true' } }, tokenBindings: ['surface/card', 'action/primary', 'text/primary'], styleBindings: ['Label', 'Body SM'], variableBindings: { fill: 'surface/card' } },
+    ],
+    patterns: [
+      { name: 'Auth — Sign In', description: 'Email + password login form with social auth options', components: ['Input', 'Button', 'Card'], layout: 'Centered single-column card, max-width 420px' },
+      { name: 'Dashboard Layout', description: 'Sidebar + topbar + main content grid with stat cards', components: ['Sidebar', 'Navigation Bar', 'Card'], layout: 'Fixed sidebar left, topbar sticky, scrollable main area' },
+      { name: 'List Page', description: 'Search + filters + data table with pagination', components: ['Input', 'Button', 'Table', 'Badge'], layout: 'Full-width table with sticky header and bottom pagination' },
+      { name: 'Settings', description: 'Sidebar nav + form sections + save actions', components: ['Sidebar', 'Input', 'Button', 'Card'], layout: 'Two-column: fixed settings nav left, form content right' },
+    ]
+  }
+}
 
-CRITICAL INFERENCE MANDATE: For any element in the required schema that cannot be directly observed in the provided inputs, infer the most likely high-quality, production-appropriate value based on the overall design language you observe. If you can see a primary color but no spacing scale, generate a spacing scale consistent with the design's density. If you can see card components but no explicit shadow tokens, infer shadow values from the apparent elevation style. Never omit a required schema field — always provide your best professional judgment. The goal is a complete, deployable design system regardless of how much input was provided.
+function mergeWithBaseline(baseline: any, diff: any): any {
+  if (!diff || typeof diff !== 'object') return baseline
+  const result = JSON.parse(JSON.stringify(baseline))
+  // Merge meta fields
+  if (diff.meta) Object.assign(result.meta, diff.meta)
+  // Override brand primitives with observed colors
+  if (diff.primitives?.length) result.variables.collections.Primitives = diff.primitives
+  // Merge semantic color overrides
+  if (diff.semanticColors) {
+    for (const [key, vals] of Object.entries(diff.semanticColors as Record<string, any>)) {
+      const idx = result.variables.collections.Color.findIndex((c: any) => c.name === key)
+      if (idx >= 0) Object.assign(result.variables.collections.Color[idx], vals)
+      else result.variables.collections.Color.push({ name: key, ...vals, resolvedType: 'COLOR', scopes: ['FRAME_FILL'] })
+    }
+  }
+  // Add/replace components by name
+  if (diff.components?.length) {
+    for (const dc of diff.components) {
+      const idx = result.components.findIndex((c: any) => c.name === dc.name)
+      if (idx >= 0) Object.assign(result.components[idx], dc)
+      else result.components.push(dc)
+    }
+  }
+  // Merge patterns
+  if (diff.patterns?.length) result.patterns = diff.patterns
+  // Update inference map
+  if (diff.inferenceMap) Object.assign(result.meta.inferenceMap, diff.inferenceMap)
+  return result
+}
 
-FIGMA PLUGIN API NAMING — ALL values must use exact Figma Plugin API conventions:
-- Variable resolvedType: COLOR | FLOAT | STRING | BOOLEAN (all caps, no other values)
-- Effect type: DROP_SHADOW | INNER_SHADOW | LAYER_BLUR | BACKGROUND_BLUR (all caps)
-- Grid pattern: COLUMNS | ROWS | GRID (all caps)
-- fontStyle: use exact Figma strings only: "Thin" | "Extra Light" | "Light" | "Regular" | "Medium" | "Semi Bold" | "Bold" | "Extra Bold" | "Black"
-- lineHeight: { "value": number, "unit": "PIXELS" | "PERCENT" | "AUTO" }
-- letterSpacing: { "value": number, "unit": "PIXELS" | "PERCENT" }
-- Variable scopes (use only these exact strings, never "ALL_SCOPES"):
-  FRAME_FILL | SHAPE_FILL | TEXT_FILL | STROKE_COLOR | EFFECT_COLOR | GAP | CORNER_RADIUS | WIDTH_HEIGHT | FONT_SIZE | LINE_HEIGHT | LETTER_SPACING | FONT_WEIGHT | STROKE_FLOAT | EFFECT_FLOAT | OPACITY | FONT_FAMILY | FONT_STYLE
+const SYSTEM_PROMPT = `You are a design systems expert. A baseline design system is already built with standard spacing, typography, motion, and components. Your job is ONLY to observe the provided screenshots and return the brand-specific DIFF — what's unique to this particular app.
 
-Your output MUST be a JSON object matching EXACTLY this schema:
+Return a compact JSON diff object. Only include what you actually observe. Do not repeat the baseline defaults.
 
+DIFF SCHEMA:
 {
   "meta": {
-    "name": string,
-    "primaryColor": string (hex),
-    "secondaryColor": string (hex),
-    "bgColor": string (hex),
-    "surfaceColor": string (hex),
-    "textColor": string (hex),
-    "borderColor": string (hex),
-    "buttonRadius": number (px),
-    "cardRadius": number (px),
-    "inputRadius": number (px),
-    "sidebarWidth": number (px),
-    "fontFamily": string,
-    "monoFontFamily": string,
-    "extractedAt": string (ISO),
-    "inferenceMap": {
-      "primitives": "found" | "inferred",
-      "colorTokens": "found" | "inferred",
-      "spacingTokens": "found" | "inferred",
-      "motionTokens": "found" | "inferred",
-      "typography": "found" | "inferred",
-      "textStyles": "found" | "inferred",
-      "effectStyles": "found" | "inferred",
-      "gridStyles": "found" | "inferred",
-      "components": "found" | "inferred",
-      "patterns": "found" | "inferred"
-    }
+    "primaryColor": "#hex (required — the dominant brand/action color)",
+    "secondaryColor": "#hex (optional)",
+    "bgColor": "#hex (page background, optional)",
+    "surfaceColor": "#hex (card/panel background, optional)",
+    "textColor": "#hex (primary text, optional)",
+    "fontFamily": "string (font name if visible, optional)",
+    "buttonRadius": number (px, optional),
+    "cardRadius": number (px, optional)
   },
-  "variables": {
-    "collections": {
-      "Primitives": [
-        {
-          "name": string,
-          "value": string,
-          "type": "color" | "number" | "string" | "boolean",
-          "resolvedType": "COLOR" | "FLOAT" | "STRING" | "BOOLEAN",
-          "scopes": string[],
-          "hiddenFromPublishing": true
-        }
-      ],
-      "Color": [
-        {
-          "name": string,
-          "lightValue": string,
-          "darkValue": string,
-          "lightAlias": string,
-          "darkAlias": string,
-          "resolvedType": "COLOR",
-          "scopes": string[],
-          "description": string
-        }
-      ],
-      "Spacing": [
-        {
-          "name": string,
-          "value": number,
-          "resolvedType": "FLOAT",
-          "scopes": ["GAP", "WIDTH_HEIGHT"],
-          "description": string
-        }
-      ],
-      "Typography": [
-        {
-          "name": string,
-          "value": string | number,
-          "resolvedType": "FLOAT" | "STRING",
-          "scopes": string[],
-          "description": string
-        }
-      ],
-      "Motion": [
-        {
-          "name": string,
-          "value": string | number,
-          "resolvedType": "FLOAT" | "STRING",
-          "description": string
-        }
-      ],
-      "Component Tokens": [
-        {
-          "name": string,
-          "value": string,
-          "component": string,
-          "property": string,
-          "resolvedType": "COLOR" | "FLOAT" | "STRING",
-          "scopes": string[]
-        }
-      ]
-    }
-  },
-  "styles": {
-    "text": [
-      {
-        "name": string,
-        "fontFamily": string,
-        "fontStyle": string,
-        "fontSize": number,
-        "fontWeight": number,
-        "lineHeight": { "value": number, "unit": "PIXELS" | "PERCENT" | "AUTO" },
-        "letterSpacing": { "value": number, "unit": "PIXELS" | "PERCENT" },
-        "paragraphSpacing": number,
-        "usage": string,
-        "tier": "display" | "heading" | "body" | "label" | "code" | "caption"
-      }
-    ],
-    "color": [
-      { "name": string, "color": string, "usage": string }
-    ],
-    "effects": [
-      {
-        "name": string,
-        "type": "DROP_SHADOW" | "INNER_SHADOW" | "LAYER_BLUR" | "BACKGROUND_BLUR",
-        "radius": number,
-        "spread": number,
-        "color": string,
-        "offsetX": number,
-        "offsetY": number,
-        "css": string
-      }
-    ],
-    "grids": [
-      {
-        "name": string,
-        "pattern": "COLUMNS" | "ROWS" | "GRID",
-        "count": number,
-        "gutter": number,
-        "margin": number,
-        "alignment": "MIN" | "STRETCH" | "CENTER" | "MAX",
-        "breakpoint": string
-      }
-    ]
+  "primitives": [
+    { "name": "brand-50..900", "value": "#hex", "type": "color", "resolvedType": "COLOR", "scopes": ["FRAME_FILL"], "hiddenFromPublishing": true }
+  ],
+  "semanticColors": {
+    "token/name": { "lightValue": "#hex", "darkValue": "#hex", "description": "string" }
   },
   "components": [
     {
-      "name": string,
-      "tier": "atom" | "molecule" | "organism" | "pattern",
-      "category": string,
-      "variants": string[],
-      "states": string[],
-      "variantProperties": { [key: string]: string[] },
-      "componentProperties": { [key: string]: { "type": "TEXT" | "BOOLEAN" | "INSTANCE_SWAP", "default": string } },
-      "tokenBindings": string[],
-      "styleBindings": string[],
-      "variableBindings": { [property: string]: string }
+      "name": "string (name as it appears in this app, e.g. PatientCard, MedTable)",
+      "tier": "atom|molecule|organism|pattern",
+      "category": "string",
+      "variants": ["string"],
+      "states": ["string"],
+      "variantProperties": {},
+      "componentProperties": {},
+      "tokenBindings": [],
+      "styleBindings": [],
+      "variableBindings": {}
     }
   ],
   "patterns": [
-    {
-      "name": string,
-      "description": string,
-      "components": string[],
-      "layout": string
-    }
-  ]
+    { "name": "string", "description": "string", "components": ["string"], "layout": "string" }
+  ],
+  "inferenceMap": {
+    "primitives": "found|inferred",
+    "colorTokens": "found|inferred",
+    "components": "found|inferred",
+    "patterns": "found|inferred"
+  }
 }
 
-REQUIRED COMPONENTS — extract or infer ALL of these, organized by tier:
-
-ATOMS (foundational, single-purpose):
-Button (variants: Primary/Secondary/Ghost/Destructive/Link; sizes: SM/MD/LG; states: Default/Hover/Pressed/Disabled/Loading)
-Input (variants: Default/Error/Success/Disabled; types: text/password/search/number)
-Checkbox (states: Unchecked/Checked/Indeterminate/Disabled)
-Radio (states: Unselected/Selected/Disabled)
-Toggle/Switch (states: Off/On/Disabled)
-Select/Dropdown (states: Closed/Open/Disabled; with search option)
-Textarea (states: Default/Focus/Error/Disabled)
-Badge/Tag (variants: Brand/Success/Warning/Error/Info/Neutral/Outline)
-Avatar (sizes: XS/SM/MD/LG/XL; variants: Image/Initials/Icon/Placeholder; with status dot)
-Icon (library: Outline/Solid/Custom)
-Spinner/Loader (sizes: SM/MD/LG; variants: Circular/Linear/Skeleton)
-Tooltip (placement: Top/Bottom/Left/Right)
-Divider (variants: Horizontal/Vertical; with/without label)
-Progress Bar (variants: Linear/Circular; states: Default/Success/Error)
-Chip/Pill (variants: Default/Dismissible/Interactive)
-
-MOLECULES (composed of atoms):
-Form Field (label + input + helper text + error message)
-Search Bar (input + icon + clear button)
-Alert/Banner (variants: Info/Success/Warning/Error; with/without icon; with/without close)
-Card (variants: Basic/Elevated/Outlined/Interactive/Brand-filled)
-Stat Card (metric + label + trend + icon)
-List Item (with/without icon, avatar, action, checkbox)
-Menu Item (with/without icon, shortcut, submenu indicator)
-Breadcrumb
-Pagination (first/prev/numbers/next/last; compact variant)
-File Upload (dropzone + file list)
-Color Picker (swatch grid + hex input)
-Date Picker (calendar + input)
-Notification/Toast (variants: Info/Success/Warning/Error; position: top-right/bottom-center)
-Tab Item (variants: Underline/Pill/Contained; states: Active/Inactive/Disabled)
-Step/Stepper Item (states: Complete/Active/Upcoming)
-
-ORGANISMS (complex, page-level):
-Navigation Bar / Topbar (logo + nav links + actions + user menu)
-Sidebar / Left Nav (logo + nav sections + items + collapse toggle)
-Data Table (header + rows + sorting + selection + pagination)
-Tab Group (tab bar + content panel)
-Modal / Dialog (header + body + footer with actions; sizes: SM/MD/LG/Full)
-Drawer / Sheet (side panel; placement: Right/Left/Bottom)
-Form (multi-field with validation, section headers, submit)
-Empty State (illustration + title + description + CTA)
-Error State (404/500/Network variants)
-Skeleton Screen (page-level loading placeholder)
-Command Palette / Search Modal
-User Profile Menu / Account Dropdown
-Notification Panel / Activity Feed
-
-PATTERNS (full page compositions):
-Auth Pages (Sign in / Sign up / Forgot password)
-Dashboard Layout (topbar + sidebar + main content area + stat cards)
-List/Table Page (filters + table + pagination)
-Detail/Profile Page (header hero + tabs + content)
-Settings Page (sidebar nav + form sections)
-Onboarding Flow (multi-step with progress indicator)
-
-SPACING SCALE — always include all 9 steps inferred from design density:
-0: 0px, 1: 4px, 2: 8px, 3: 12px, 4: 16px, 5: 24px, 6: 32px, 7: 48px, 8: 64px, 9: 96px
-
-TYPOGRAPHY SCALE — always include all 10 styles:
-Display (36-72px, Bold/Extra Bold), H1 (28-36px), H2 (22-28px), H3 (18-22px), H4 (16-18px), Body LG (16-18px), Body (14-16px), Body SM (12-14px), Caption (11-12px), Label (11-13px, Semi Bold), Code/Mono (13-14px), Overline (11px, uppercase, tracked)
-
-MOTION TOKENS — always include even if no animations visible:
-Duration: instant(0ms), fast(100ms), base(200ms), slow(300ms), slower(500ms)
-Easing: linear, ease-in, ease-out, ease-in-out, spring, bounce
-
-COLOR SEMANTIC TOKENS — always include:
-Action: primary, secondary, ghost, destructive
-Surface: page, card, overlay, sidebar, code
-Text: primary, secondary, tertiary, inverse, link, disabled
-Border: default, strong, focus, error
-Status: success-bg/text/border, warning-bg/text/border, error-bg/text/border, info-bg/text/border
+RULES:
+- primitives: list only the brand color ramp (brand-50 through brand-900) derived from the observed primary color. Skip if you cannot determine the brand color.
+- components: list app-specific component names you observe. Include domain-specific ones (e.g. PatientCard, OrderTable). Skip generic ones already in the baseline (Button, Input, Modal, etc.) unless they have app-specific variants.
+- patterns: list the page layouts/flows you can see in the screenshots.
+- meta.primaryColor is REQUIRED. Everything else is optional — only include what you observe.
 
 Respond ONLY with the JSON object. No markdown, no explanation, no code fences.`
 
@@ -300,7 +282,7 @@ async function extractHandler(req: HttpRequest, context: InvocationContext): Pro
   const contentBlocks: any[] = []
   contentBlocks.push({
     type: 'text',
-    text: `App name: ${name || 'Unknown'}\nPrimary brand color hint: ${primaryColor || 'none'}\nDescription: ${description || 'none'}\nURLs provided: ${urls.join(', ') || 'none'}\n\nExtract the complete design system from the attached screenshots.`
+    text: `App name: ${name || 'Unknown'}\nPrimary brand color hint: ${primaryColor || 'none'}\nDescription: ${description || 'none'}\nURLs provided: ${urls.join(', ') || 'none'}\n\nAnalyze the screenshots and return only the brand-specific diff JSON as instructed.`
   })
 
   for (const img of images.slice(0, 20)) {
@@ -357,7 +339,7 @@ async function extractHandler(req: HttpRequest, context: InvocationContext): Pro
           },
           body: JSON.stringify({
             model: 'claude-sonnet-4-6',
-            max_tokens: 16000,
+            max_tokens: 4096,
             system: SYSTEM_PROMPT,
             messages: [{ role: 'user', content: contentBlocks }],
             stream: true,
@@ -406,7 +388,9 @@ async function extractHandler(req: HttpRequest, context: InvocationContext): Pro
         let result: any = null
         try {
           const clean = jsonBuf.replace(/^```json?\s*/i, '').replace(/```\s*$/, '').trim()
-          result = JSON.parse(clean)
+          const diff = JSON.parse(clean)
+          const baseline = buildBaseline(name || 'Design System', diff?.meta?.primaryColor || primaryColor || '', diff?.meta?.fontFamily || '')
+          result = mergeWithBaseline(baseline, diff)
         } catch (e) {
           emit({ type: 'progress', category: 'error', message: `JSON parse failed: ${(e as Error).message}`, done: true })
           controller.close(); return
