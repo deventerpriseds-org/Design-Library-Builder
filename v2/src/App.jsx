@@ -8,6 +8,7 @@ import Review from './screens/Review.jsx'
 import Export from './screens/Export.jsx'
 import Showcase from './screens/Showcase.jsx'
 import FigmaPush from './screens/FigmaPush.jsx'
+import Libraries from './screens/Libraries.jsx'
 
 function Router() {
   const { dispatch } = useApp()
@@ -30,6 +31,7 @@ function Router() {
       {screen === 'export' && <Export />}
       {screen === 'figma-push' && <FigmaPush />}
       {screen === 'showcase' && <Showcase />}
+      {screen === 'libraries' && <Libraries />}
     </Shell>
   )
 }

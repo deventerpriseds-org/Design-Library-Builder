@@ -7,6 +7,10 @@ const CONN = process.env.AZURE_STORAGE_CONNECTION_STRING!
 const CLAUDE_API_KEY = process.env.ANTHROPIC_API_KEY || ''
 const TABLE = 'DesignLibraries'
 const FIGMA_TOKEN = process.env.FIGMA_ACCESS_TOKEN || ''
+const GH_PAT = process.env.GH_PAT || ''
+const GH_REPO_OWNER = process.env.GH_REPO_OWNER || 'deventerpriseds-org'
+const GH_REPO_NAME = process.env.GH_REPO_NAME || 'Design-Library-Builder'
+const GH_STORIES_BRANCH = process.env.GH_STORIES_BRANCH || 'main'
 
 // ── PostgreSQL pool (lazy init) ───────────────────────────────────────────────
 let _pgPool: Pool | null = null
@@ -717,6 +721,8 @@ async function figmaPatchHandler(req: HttpRequest, ctx: InvocationContext): Prom
 }
 
 // ── Stories generator ─────────────────────────────────────────────────────────
+// Stories are namespaced as {LibraryName}/{Tier}/{ComponentName} so that one
+// shared Storybook instance partitions multiple design libraries by sidebar group.
 async function storiesHandler(req: HttpRequest, ctx: InvocationContext): Promise<HttpResponseInit> {
   if (req.method === 'OPTIONS') return { status: 204, headers: CORS }
   let body: any
@@ -727,12 +733,16 @@ async function storiesHandler(req: HttpRequest, ctx: InvocationContext): Promise
   const components = result.components || []
   const primary = result.meta?.primaryColor || '#1B4F5C'
   const radius = result.meta?.buttonRadius || 8
+  // Library name becomes the top-level Storybook sidebar group and Supernova namespace
+  const libraryName = (result.meta?.name || 'Design System').replace(/[^a-zA-Z0-9 ]/g, '').trim()
 
   const stories = components.map((c: any) => {
+    const tier = c.tier ? c.tier.charAt(0).toUpperCase() + c.tier.slice(1) + 's' : 'Components'
+    // Namespace: LibraryName/Tier/ComponentName — partitions this library in the shared Storybook
+    const storyTitle = `${libraryName}/${tier}/${c.name}`
     const variants = c.variants || ['Default']
-    const args = { label: c.name, disabled: false }
     const storyContent = variants.map((v: string) => `
-export const ${v.replace(/[^a-zA-Z0-9]/g, '')} = {
+export const ${v.replace(/[^a-zA-Z0-9]/g, '') || 'Variant'} = {
   args: { ...Default.args, label: '${v}' },
 }`).join('\n')
 
@@ -741,8 +751,8 @@ export const ${v.replace(/[^a-zA-Z0-9]/g, '')} = {
       content: `import React from 'react'
 
 export default {
-  title: '${c.tier ? c.tier.charAt(0).toUpperCase() + c.tier.slice(1) + 's' : 'Components'}/${c.name}',
-  tags: ['autodocs'],
+  title: '${storyTitle}',
+  tags: ['autodocs', '${libraryName.toLowerCase().replace(/\s+/g, '-')}'],
   argTypes: {
     label: { control: 'text' },
     disabled: { control: 'boolean' },
@@ -762,7 +772,90 @@ ${storyContent}
     }
   })
 
-  return { status: 200, headers: JSON_H, jsonBody: { stories } }
+  return { status: 200, headers: JSON_H, jsonBody: { stories, libraryName } }
+}
+
+// ── Commit stories to repo → triggers storybook-supernova.yml workflow ───────
+// POST /api/design-library/commit-stories
+// Body: { stories: [{filename, content}], libraryName: string }
+// Uses GH_PAT to upsert files into storybook/stories/{libraryName}/ on main,
+// which triggers the push path in storybook-supernova.yml.
+async function commitStoriesHandler(req: HttpRequest, ctx: InvocationContext): Promise<HttpResponseInit> {
+  if (req.method === 'OPTIONS') return { status: 204, headers: CORS }
+  if (!GH_PAT) return { status: 500, headers: JSON_H, jsonBody: { error: 'GH_PAT not configured on Function App' } }
+
+  let body: any
+  try { body = await req.json() } catch { return { status: 400, headers: JSON_H, jsonBody: { error: 'Invalid JSON' } } }
+
+  const { stories, libraryName } = body as { stories: { filename: string; content: string }[]; libraryName: string }
+  if (!stories?.length) return { status: 400, headers: JSON_H, jsonBody: { error: 'stories array required' } }
+
+  const slug = (libraryName || 'extracted').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  const base = `storybook/stories/${slug}`
+  const apiBase = `https://api.github.com/repos/${GH_REPO_OWNER}/${GH_REPO_NAME}/contents`
+  const headers = {
+    Authorization: `Bearer ${GH_PAT}`,
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+    'Content-Type': 'application/json',
+    'User-Agent': 'design-library-builder-api',
+  }
+
+  const committed: string[] = []
+  const failed: string[] = []
+
+  for (const story of stories) {
+    const path = `${base}/${story.filename}`
+    const encoded = Buffer.from(story.content, 'utf8').toString('base64')
+
+    // Check if file already exists (need its SHA for update)
+    let sha: string | undefined
+    try {
+      const check = await fetch(`${apiBase}/${path}?ref=${GH_STORIES_BRANCH}`, { headers })
+      if (check.ok) {
+        const existing = await check.json() as any
+        sha = existing.sha
+      }
+    } catch { /* new file, no SHA needed */ }
+
+    const payload: any = {
+      message: `chore: update ${slug} stories from design extraction`,
+      content: encoded,
+      branch: GH_STORIES_BRANCH,
+      committer: { name: 'Design Library Builder', email: 'noreply@github.com' },
+    }
+    if (sha) payload.sha = sha
+
+    try {
+      const res = await fetch(`${apiBase}/${path}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify(payload),
+      })
+      if (res.ok) {
+        committed.push(story.filename)
+      } else {
+        const err = await res.json().catch(() => ({})) as any
+        ctx.log(`Failed to commit ${path}: ${res.status} ${err?.message || ''}`)
+        failed.push(story.filename)
+      }
+    } catch (e: any) {
+      ctx.log(`Error committing ${path}: ${e.message}`)
+      failed.push(story.filename)
+    }
+  }
+
+  return {
+    status: committed.length > 0 ? 200 : 500,
+    headers: JSON_H,
+    jsonBody: {
+      committed,
+      failed,
+      branch: GH_STORIES_BRANCH,
+      path: base,
+      triggersWorkflow: committed.length > 0,
+    },
+  }
 }
 
 // ── Figma webhook receiver ────────────────────────────────────────────────────
@@ -897,6 +990,13 @@ app.http('storiesGen', {
   authLevel: 'anonymous',
   route: 'design-library/stories',
   handler: storiesHandler,
+})
+
+app.http('commitStories', {
+  methods: ['POST', 'OPTIONS'],
+  authLevel: 'anonymous',
+  route: 'design-library/commit-stories',
+  handler: commitStoriesHandler,
 })
 
 app.http('figmaWebhook', {

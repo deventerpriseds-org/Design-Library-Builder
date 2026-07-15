@@ -135,3 +135,14 @@ export async function generateStories(result) {
   if (!res.ok) return { stories: [] }
   return res.json()
 }
+
+// POST /design-library/commit-stories  — commit story files to repo → triggers Storybook build
+export async function commitStories({ stories, libraryName }) {
+  const res = await fetch(`${API_BASE}/design-library/commit-stories`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ stories, libraryName }),
+  })
+  if (!res.ok) return { committed: [], failed: stories.map(s => s.filename), triggersWorkflow: false }
+  return res.json()
+}

@@ -3,11 +3,12 @@ import { useApp, useRoute, go } from './state.jsx'
 import { signOut } from './auth.js'
 
 const NAV = [
-  { path: '/upload',   label: 'Upload',   icon: '⇑',  desc: 'Add inputs' },
-  { path: '/extract',  label: 'Extract',  icon: '✦',  desc: 'AI analysis' },
-  { path: '/review',   label: 'Review',   icon: '◈',  desc: 'Edit tokens' },
-  { path: '/export',   label: 'Export',   icon: '⇓',  desc: 'Download' },
-  { path: '/showcase', label: 'Showcase', icon: '▦',  desc: 'Live preview' },
+  { path: '/upload',    label: 'Upload',    icon: '⇑',  desc: 'Add inputs' },
+  { path: '/extract',   label: 'Extract',   icon: '✦',  desc: 'AI analysis' },
+  { path: '/review',    label: 'Review',    icon: '◈',  desc: 'Edit tokens' },
+  { path: '/export',    label: 'Export',    icon: '⇓',  desc: 'Download' },
+  { path: '/showcase',  label: 'Showcase',  icon: '▦',  desc: 'Live preview' },
+  { path: '/libraries', label: 'Libraries', icon: '◫',  desc: 'All libraries', divider: true },
 ]
 
 export function Shell({ children }) {
@@ -58,19 +59,22 @@ export function Shell({ children }) {
           {NAV.map((n) => {
             const on = active === n.path
             return (
-              <button key={n.path} onClick={() => go(n.path)}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
-                  borderRadius: 'var(--dlg-radius-md)', cursor: 'pointer', border: 'none',
-                  background: on ? 'var(--dlg-brand-soft)' : 'transparent',
-                  color: on ? 'var(--dlg-brand)' : 'var(--dlg-text-2)',
-                  fontWeight: on ? 600 : 500, fontSize: 14, width: '100%', textAlign: 'left',
-                  fontFamily: 'inherit', transition: 'all 0.15s' }}>
-                <span style={{ fontSize: 16, width: 20, textAlign: 'center', flexShrink: 0 }}>{n.icon}</span>
-                <div>
-                  <div>{n.label}</div>
-                  <div style={{ fontSize: 11, color: on ? 'var(--dlg-brand)' : 'var(--dlg-text-3)', fontWeight: 400 }}>{n.desc}</div>
-                </div>
-              </button>
+              <React.Fragment key={n.path}>
+                {n.divider && <div style={{ height: 1, background: 'var(--dlg-border)', margin: '4px 0' }} />}
+                <button onClick={() => go(n.path)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+                    borderRadius: 'var(--dlg-radius-md)', cursor: 'pointer', border: 'none',
+                    background: on ? 'var(--dlg-brand-soft)' : 'transparent',
+                    color: on ? 'var(--dlg-brand)' : 'var(--dlg-text-2)',
+                    fontWeight: on ? 600 : 500, fontSize: 14, width: '100%', textAlign: 'left',
+                    fontFamily: 'inherit', transition: 'all 0.15s' }}>
+                  <span style={{ fontSize: 16, width: 20, textAlign: 'center', flexShrink: 0 }}>{n.icon}</span>
+                  <div>
+                    <div>{n.label}</div>
+                    <div style={{ fontSize: 11, color: on ? 'var(--dlg-brand)' : 'var(--dlg-text-3)', fontWeight: 400 }}>{n.desc}</div>
+                  </div>
+                </button>
+              </React.Fragment>
             )
           })}
 
