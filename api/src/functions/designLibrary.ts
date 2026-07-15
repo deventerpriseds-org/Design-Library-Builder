@@ -913,7 +913,7 @@ async function storiesHandler(req: HttpRequest, ctx: InvocationContext): Promise
     const tier = c.tier ? c.tier.charAt(0).toUpperCase() + c.tier.slice(1) + 's' : 'Components'
     // Namespace: LibraryName/Tier/ComponentName — partitions this library in the shared Storybook
     const storyTitle = `${libraryName}/${tier}/${c.name}`
-    const variants = c.variants || ['Default']
+    const variants = (c.variants || []).filter((v: string) => v !== 'Default')
     const storyContent = variants.map((v: string) => `
 export const ${v.replace(/[^a-zA-Z0-9]/g, '') || 'Variant'} = {
   args: { ...Default.args, label: '${v}' },
