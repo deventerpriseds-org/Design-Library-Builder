@@ -17,7 +17,3 @@ export const Default = {
     </div>
   ),
 }
-
-export const default = {
-  args: { ...Default.args, label: 'default' },
-}
