@@ -18,10 +18,6 @@ export const Default = {
   ),
 }
 
-export const Default = {
-  args: { ...Default.args, label: 'Default' },
-}
-
 export const Collapsed = {
   args: { ...Default.args, label: 'Collapsed' },
 }

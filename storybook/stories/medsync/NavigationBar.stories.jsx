@@ -18,10 +18,6 @@ export const Default = {
   ),
 }
 
-export const Default = {
-  args: { ...Default.args, label: 'Default' },
-}
-
 export const Compact = {
   args: { ...Default.args, label: 'Compact' },
 }
