@@ -79,10 +79,10 @@ An API returning 200 is NOT confirmation the downstream effect happened.
 | Upload image → Azure Blob | ✅ Working | `/api/design-library/upload` |
 | Extract → Anthropic → design system | ✅ Working | ~18s with baseline+diff approach |
 | `/stories` → generate story files | ✅ Working | 14 files for MedSync |
-| `/commit-stories` → push to repo | ✅ Working | After fixing `ghub_key` → `GH_PAT` |
-| Storybook build (`storybook-supernova.yml`) | ❌ BROKEN | Build fails: duplicate `export const Default` in generated story files for some components. Files in `storybook/stories/medsync/` still contain the bug from the prior commit. **This step is not passing and UAT is not complete.** |
-| Deploy Storybook to SWA | ❌ Blocked by above | |
-| Supernova sync | ❌ Blocked by above | |
+| `/commit-stories` → push to repo | ✅ Working | Uses org secret `ghub_key` → Function App env `GH_PAT` |
+| Storybook build (`storybook-supernova.yml`) | ✅ Working | Confirmed `conclusion: success` on run 29458317757 |
+| Deploy Storybook to SWA | ✅ Working | https://lively-field-0cff9e30f.7.azurestaticapps.net (HTTP 200) |
+| Supernova sync | ⚠️ Unverified | Workflow runs but `SUPERNOVA_WORKSPACE_ID` was blank in logs — sync may be silently skipping |
 
 ## Deploy Commands
 
