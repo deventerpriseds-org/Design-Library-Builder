@@ -1,6 +1,7 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions'
 import { TableClient, odata } from '@azure/data-tables'
 import { BlobServiceClient, generateBlobSASQueryParameters, BlobSASPermissions, StorageSharedKeyCredential } from '@azure/storage-blob'
+import { QueueServiceClient } from '@azure/storage-queue'
 import { Pool } from 'pg'
 
 const CONN = process.env.AZURE_STORAGE_CONNECTION_STRING!
@@ -472,48 +473,13 @@ async function extractAsyncHandler(req: HttpRequest, context: InvocationContext)
   // Write pending job record
   await table.upsertEntity({ partitionKey: 'job', rowKey: jobId, status: 'pending', createdAt: new Date().toISOString() })
 
-  // Fire-and-forget: run extraction, write result back to table
-  ;(async () => {
-    try {
-      const { name, primaryColor, images = [], urls = [], description = '' } = body as any
-      const contentBlocks: any[] = []
-      contentBlocks.push({ type: 'text', text: `App name: ${name || 'Unknown'}\nPrimary brand color hint: ${primaryColor || 'none'}\nDescription: ${description || 'none'}\n\nExtract the complete design system.` })
-      for (const img of (images as any[]).slice(0, 20)) {
-        const match = img.dataUrl?.match(/^data:(image\/[^;]+);base64,(.+)$/)
-        if (match) contentBlocks.push({ type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } })
-      }
-      for (const url of (urls as string[]).slice(0, 20)) {
-        if (!url.startsWith('http')) continue
-        try {
-          const imgRes = await fetch(url)
-          if (!imgRes.ok) continue
-          const ct = (imgRes.headers.get('content-type') || 'image/png').split(';')[0].trim()
-          if (!ct.startsWith('image/')) continue
-          const b64 = Buffer.from(await imgRes.arrayBuffer()).toString('base64')
-          contentBlocks.push({ type: 'image', source: { type: 'base64', media_type: ct, data: b64 } })
-        } catch { /* skip */ }
-      }
-
-      await table.upsertEntity({ partitionKey: 'job', rowKey: jobId, status: 'running', updatedAt: new Date().toISOString() })
-
-      const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': CLAUDE_API_KEY, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 16000, system: SYSTEM_PROMPT, messages: [{ role: 'user', content: contentBlocks }], stream: false }),
-      })
-      if (!anthropicRes.ok) throw new Error(`Anthropic ${anthropicRes.status}`)
-      const anthropicData = await anthropicRes.json() as any
-      const jsonBuf = anthropicData.content?.[0]?.text || ''
-      const clean = jsonBuf.replace(/^```json?\s*/i, '').replace(/```\s*$/, '').trim()
-      const result = JSON.parse(clean)
-      if (!result.meta) result.meta = {}
-      result.meta.name = result.meta.name || name || 'Design System'
-      result.meta.extractedAt = new Date().toISOString()
-      await table.upsertEntity({ partitionKey: 'job', rowKey: jobId, status: 'done', result: JSON.stringify(result), updatedAt: new Date().toISOString() })
-    } catch (e) {
-      await table.upsertEntity({ partitionKey: 'job', rowKey: jobId, status: 'error', error: (e as Error).message, updatedAt: new Date().toISOString() }).catch(() => {})
-    }
-  })()
+  // Enqueue job params — the queue-triggered worker does the actual Anthropic call
+  // This avoids fire-and-forget IIFEs that Azure terminates after HTTP response is sent
+  const queueSvc = QueueServiceClient.fromConnectionString(CONN)
+  const queue = queueSvc.getQueueClient('extraction-jobs')
+  await queue.createIfNotExists()
+  const msg = Buffer.from(JSON.stringify({ jobId, ...body })).toString('base64')
+  await queue.sendMessage(msg)
 
   return { status: 202, headers: JSON_H, jsonBody: { jobId } }
 }
@@ -528,7 +494,17 @@ async function extractJobHandler(req: HttpRequest, context: InvocationContext): 
     const entity = await table.getEntity('job', jobId)
     const status = entity.status as string
     if (status === 'done') {
-      const result = JSON.parse(entity.result as string)
+      let result: any
+      if (entity.resultBlobName) {
+        // Result stored in blob (too large for table property)
+        const blobSvc = BlobServiceClient.fromConnectionString(CONN)
+        const blobContainer = blobSvc.getContainerClient('design-library-uploads')
+        const blob = blobContainer.getBlockBlobClient(entity.resultBlobName as string)
+        const download = await blob.downloadToBuffer()
+        result = JSON.parse(download.toString())
+      } else {
+        result = JSON.parse(entity.result as string)
+      }
       return { status: 200, headers: JSON_H, jsonBody: { status: 'done', result } }
     }
     if (status === 'error') return { status: 200, headers: JSON_H, jsonBody: { status: 'error', error: entity.error } }
@@ -538,6 +514,91 @@ async function extractJobHandler(req: HttpRequest, context: InvocationContext): 
     return { status: 500, headers: JSON_H, jsonBody: { error: (e as Error).message } }
   }
 }
+
+// ── Queue worker: processes extraction-jobs queue messages ────────────────────
+async function extractionWorker(queueItem: unknown, context: InvocationContext): Promise<void> {
+  const raw = Buffer.from(queueItem as string, 'base64').toString('utf8')
+  const { jobId, name, primaryColor, images = [], urls = [], description = '' } = JSON.parse(raw)
+  const table = TableClient.fromConnectionString(CONN, 'ExtractionJobs')
+  try {
+    await table.upsertEntity({ partitionKey: 'job', rowKey: jobId, status: 'running', updatedAt: new Date().toISOString() })
+
+    const contentBlocks: any[] = []
+    contentBlocks.push({ type: 'text', text: `App name: ${name || 'Unknown'}\nPrimary brand color hint: ${primaryColor || 'none'}\nDescription: ${description || 'none'}\n\nExtract the complete design system.` })
+    for (const img of (images as any[]).slice(0, 20)) {
+      const match = img.dataUrl?.match(/^data:(image\/[^;]+);base64,(.+)$/)
+      if (match) contentBlocks.push({ type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } })
+    }
+    for (const url of (urls as string[]).slice(0, 20)) {
+      if (!url.startsWith('http')) continue
+      try {
+        const imgRes = await fetch(url)
+        if (!imgRes.ok) continue
+        const ct = (imgRes.headers.get('content-type') || 'image/png').split(';')[0].trim()
+        if (!ct.startsWith('image/')) continue
+        const b64 = Buffer.from(await imgRes.arrayBuffer()).toString('base64')
+        contentBlocks.push({ type: 'image', source: { type: 'base64', media_type: ct, data: b64 } })
+        context.log(`extractionWorker: added image from ${url.slice(0, 60)}`)
+      } catch (e: any) {
+        context.log(`extractionWorker: skip image fetch error: ${e.message}`)
+      }
+    }
+
+    context.log(`extractionWorker: calling Anthropic with ${contentBlocks.length} blocks`)
+    const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': CLAUDE_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 32000, system: SYSTEM_PROMPT, messages: [{ role: 'user', content: contentBlocks }], stream: true }),
+    })
+    if (!anthropicRes.ok) {
+      const errText = await anthropicRes.text()
+      throw new Error(`Anthropic ${anthropicRes.status}: ${errText.slice(0, 200)}`)
+    }
+
+    let jsonBuf = ''
+    const reader = anthropicRes.body!.getReader()
+    const decoder = new TextDecoder()
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      for (const line of decoder.decode(value, { stream: true }).split('\n')) {
+        if (!line.startsWith('data: ')) continue
+        const data = line.slice(6).trim()
+        if (data === '[DONE]') continue
+        try {
+          const ev = JSON.parse(data)
+          if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta') jsonBuf += ev.delta.text
+        } catch { /* skip */ }
+      }
+    }
+    context.log(`extractionWorker: received ${jsonBuf.length} chars from Anthropic`)
+
+    const clean = jsonBuf.replace(/^```json?\s*/i, '').replace(/```\s*$/, '').trim()
+    const result = JSON.parse(clean)
+    if (!result.meta) result.meta = {}
+    result.meta.name = result.meta.name || name || 'Design System'
+    result.meta.extractedAt = new Date().toISOString()
+
+    const blobSvc = BlobServiceClient.fromConnectionString(CONN)
+    const blobContainer = blobSvc.getContainerClient('design-library-uploads')
+    const resultBlobName = `jobs/${jobId}/result.json`
+    await blobContainer.getBlockBlobClient(resultBlobName).uploadData(
+      Buffer.from(JSON.stringify(result)),
+      { blobHTTPHeaders: { blobContentType: 'application/json' } }
+    )
+    await table.upsertEntity({ partitionKey: 'job', rowKey: jobId, status: 'done', resultBlobName, updatedAt: new Date().toISOString() })
+    context.log(`extractionWorker: job ${jobId} done`)
+  } catch (e: any) {
+    context.log(`extractionWorker: job ${jobId} error: ${e.message}`)
+    await table.upsertEntity({ partitionKey: 'job', rowKey: jobId, status: 'error', error: e.message, updatedAt: new Date().toISOString() }).catch(() => {})
+  }
+}
+
+app.storageQueue('extractionWorker', {
+  queueName: 'extraction-jobs',
+  connection: 'AZURE_STORAGE_CONNECTION_STRING',
+  handler: extractionWorker,
+})
 
 // ── Save endpoint ─────────────────────────────────────────────────────────────
 async function saveHandler(req: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
