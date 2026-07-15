@@ -51,7 +51,7 @@ az account set --subscription 09594120-1b35-4e21-84c6-451ac27175a3
 | `SUPERNOVA_TOKEN` | Supernova CLI authentication |
 | `SUPERNOVA_WORKSPACE_ID` | Supernova workspace (or resolved dynamically from token) |
 | `Azure_admin_pw` | **⚠ note casing** — Postgres `Admin_eds` password → synced as `AZURE_PG_PASSWORD` |
-| `GH_PAT` | **Reuses existing org secret** — GitHub PAT already present in the org; has `contents:write` on this repo. Used by `/commit-stories` to push story files and trigger the Storybook workflow. Already synced to the Function App via `api-deploy.yml`. Do NOT create a new secret — the existing org `GH_PAT` is the one to use. |
+| `GH_PAT` | GitHub PAT with `contents:write` on this repo. Used by `/commit-stories` to push story files and trigger the Storybook workflow. Synced to the Function App via `api-deploy.yml`. **If `/commit-stories` returns "GH_PAT not configured"**: create a classic PAT at github.com/settings/tokens (scope: `repo`) and add it as org secret `GH_PAT`. During UAT this was missing, so story files were committed directly via git as a workaround — the pipeline is otherwise complete. |
 
 When adding a new secret: add it to GitHub secrets **and** to the `--settings` list in `.github/workflows/api-deploy.yml` (exact-name match — mismatch silently blanks the setting).
 
