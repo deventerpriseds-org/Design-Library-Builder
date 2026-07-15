@@ -308,6 +308,21 @@ async function extractHandler(req: HttpRequest, context: InvocationContext): Pro
     contentBlocks.push({ type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } })
   }
 
+  // Fetch blob SAS URLs (uploaded images) and add as base64 image blocks
+  for (const url of urls.slice(0, 20)) {
+    if (!url.startsWith('http')) continue
+    try {
+      const imgRes = await fetch(url)
+      if (!imgRes.ok) continue
+      const contentType = imgRes.headers.get('content-type') || 'image/png'
+      const mediaType = contentType.split(';')[0].trim()
+      if (!mediaType.startsWith('image/')) continue
+      const buf = await imgRes.arrayBuffer()
+      const b64 = Buffer.from(buf).toString('base64')
+      contentBlocks.push({ type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } })
+    } catch { /* skip unfetchable URLs */ }
+  }
+
   const encoder = new TextEncoder()
   const stream = new ReadableStream({
     async start(controller) {
