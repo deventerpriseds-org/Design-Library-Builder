@@ -499,7 +499,7 @@ async function extractAsyncHandler(req: HttpRequest, context: InvocationContext)
       const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': CLAUDE_API_KEY, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 16000, system: SYSTEM_PROMPT, messages: [{ role: 'user', content: contentBlocks }], stream: false }),
+        body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 64000, system: SYSTEM_PROMPT, messages: [{ role: 'user', content: contentBlocks }], stream: false }),
       })
       if (!anthropicRes.ok) throw new Error(`Anthropic ${anthropicRes.status}`)
       const anthropicData = await anthropicRes.json() as any
