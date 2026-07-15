@@ -64,6 +64,26 @@ When adding a new secret: add it to GitHub secrets **and** to the `--settings` l
 - Supernova sync must receive the live deployed Storybook URL with real content
 - Any endpoint test that uses `{}` or dummy data counts as a smoke test only, not UAT
 
+**UAT is not complete until every step is confirmed working end-to-end — not assumed, not inferred from a successful API response.**
+
+A workflow run returning `triggersWorkflow: true` is NOT confirmation the workflow passed.
+A commit landing in the repo is NOT confirmation Storybook built.
+An API returning 200 is NOT confirmation the downstream effect happened.
+
+**You must check the actual GitHub Actions run result for the storybook-supernova.yml workflow and confirm `conclusion: success` before declaring UAT complete on the Storybook step.** If the build is failing, report it as a blocker — do not declare UAT done and do not fabricate a passing state.
+
+### Current known pipeline status (last verified 2026-07-15)
+
+| Step | Status | Notes |
+|------|--------|-------|
+| Upload image → Azure Blob | ✅ Working | `/api/design-library/upload` |
+| Extract → Anthropic → design system | ✅ Working | ~18s with baseline+diff approach |
+| `/stories` → generate story files | ✅ Working | 14 files for MedSync |
+| `/commit-stories` → push to repo | ✅ Working | After fixing `ghub_key` → `GH_PAT` |
+| Storybook build (`storybook-supernova.yml`) | ❌ BROKEN | Build fails: duplicate `export const Default` in generated story files for some components. Files in `storybook/stories/medsync/` still contain the bug from the prior commit. **This step is not passing and UAT is not complete.** |
+| Deploy Storybook to SWA | ❌ Blocked by above | |
+| Supernova sync | ❌ Blocked by above | |
+
 ## Deploy Commands
 
 ```bash
