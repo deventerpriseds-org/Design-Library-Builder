@@ -458,6 +458,87 @@ async function extractHandler(req: HttpRequest, context: InvocationContext): Pro
   return { status: 200, headers: STREAM_H, body: stream as any }
 }
 
+// ── Async extract: POST /design-library/extract-async ────────────────────────
+// Returns { jobId } immediately; runs extraction in background; poll /extract-job/:id
+async function extractAsyncHandler(req: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
+  if (req.method === 'OPTIONS') return { status: 204, headers: CORS }
+  if (!CLAUDE_API_KEY) return { status: 500, headers: JSON_H, jsonBody: { error: 'ANTHROPIC_API_KEY not configured' } }
+  let body: any
+  try { body = await req.json() } catch { return { status: 400, headers: JSON_H, jsonBody: { error: 'Invalid JSON' } } }
+
+  const jobId = crypto.randomUUID()
+  const table = TableClient.fromConnectionString(CONN, 'ExtractionJobs')
+
+  // Write pending job record
+  await table.upsertEntity({ partitionKey: 'job', rowKey: jobId, status: 'pending', createdAt: new Date().toISOString() })
+
+  // Fire-and-forget: run extraction, write result back to table
+  ;(async () => {
+    try {
+      const { name, primaryColor, images = [], urls = [], description = '' } = body as any
+      const contentBlocks: any[] = []
+      contentBlocks.push({ type: 'text', text: `App name: ${name || 'Unknown'}\nPrimary brand color hint: ${primaryColor || 'none'}\nDescription: ${description || 'none'}\n\nExtract the complete design system.` })
+      for (const img of (images as any[]).slice(0, 20)) {
+        const match = img.dataUrl?.match(/^data:(image\/[^;]+);base64,(.+)$/)
+        if (match) contentBlocks.push({ type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } })
+      }
+      for (const url of (urls as string[]).slice(0, 20)) {
+        if (!url.startsWith('http')) continue
+        try {
+          const imgRes = await fetch(url)
+          if (!imgRes.ok) continue
+          const ct = (imgRes.headers.get('content-type') || 'image/png').split(';')[0].trim()
+          if (!ct.startsWith('image/')) continue
+          const b64 = Buffer.from(await imgRes.arrayBuffer()).toString('base64')
+          contentBlocks.push({ type: 'image', source: { type: 'base64', media_type: ct, data: b64 } })
+        } catch { /* skip */ }
+      }
+
+      await table.upsertEntity({ partitionKey: 'job', rowKey: jobId, status: 'running', updatedAt: new Date().toISOString() })
+
+      const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': CLAUDE_API_KEY, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 16000, system: SYSTEM_PROMPT, messages: [{ role: 'user', content: contentBlocks }], stream: false }),
+      })
+      if (!anthropicRes.ok) throw new Error(`Anthropic ${anthropicRes.status}`)
+      const anthropicData = await anthropicRes.json() as any
+      const jsonBuf = anthropicData.content?.[0]?.text || ''
+      const clean = jsonBuf.replace(/^```json?\s*/i, '').replace(/```\s*$/, '').trim()
+      const result = JSON.parse(clean)
+      if (!result.meta) result.meta = {}
+      result.meta.name = result.meta.name || name || 'Design System'
+      result.meta.extractedAt = new Date().toISOString()
+      await table.upsertEntity({ partitionKey: 'job', rowKey: jobId, status: 'done', result: JSON.stringify(result), updatedAt: new Date().toISOString() })
+    } catch (e) {
+      await table.upsertEntity({ partitionKey: 'job', rowKey: jobId, status: 'error', error: (e as Error).message, updatedAt: new Date().toISOString() }).catch(() => {})
+    }
+  })()
+
+  return { status: 202, headers: JSON_H, jsonBody: { jobId } }
+}
+
+// ── Poll extract job: GET /design-library/extract-job/:jobId ─────────────────
+async function extractJobHandler(req: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
+  if (req.method === 'OPTIONS') return { status: 204, headers: CORS }
+  const jobId = req.params.jobId
+  if (!jobId) return { status: 400, headers: JSON_H, jsonBody: { error: 'Missing jobId' } }
+  try {
+    const table = TableClient.fromConnectionString(CONN, 'ExtractionJobs')
+    const entity = await table.getEntity('job', jobId)
+    const status = entity.status as string
+    if (status === 'done') {
+      const result = JSON.parse(entity.result as string)
+      return { status: 200, headers: JSON_H, jsonBody: { status: 'done', result } }
+    }
+    if (status === 'error') return { status: 200, headers: JSON_H, jsonBody: { status: 'error', error: entity.error } }
+    return { status: 200, headers: JSON_H, jsonBody: { status } }
+  } catch (e: any) {
+    if (e.statusCode === 404) return { status: 404, headers: JSON_H, jsonBody: { error: 'Job not found' } }
+    return { status: 500, headers: JSON_H, jsonBody: { error: (e as Error).message } }
+  }
+}
+
 // ── Save endpoint ─────────────────────────────────────────────────────────────
 async function saveHandler(req: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   if (req.method === 'OPTIONS') return { status: 204, headers: CORS }
@@ -1162,4 +1243,18 @@ app.http('imageUpload', {
   authLevel: 'anonymous',
   route: 'design-library/upload',
   handler: imageUploadHandler,
+})
+
+app.http('extractAsync', {
+  methods: ['POST', 'OPTIONS'],
+  authLevel: 'anonymous',
+  route: 'design-library/extract-async',
+  handler: extractAsyncHandler,
+})
+
+app.http('extractJob', {
+  methods: ['GET', 'OPTIONS'],
+  authLevel: 'anonymous',
+  route: 'design-library/extract-job/{jobId}',
+  handler: extractJobHandler,
 })

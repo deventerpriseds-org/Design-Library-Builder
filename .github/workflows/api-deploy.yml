@@ -92,6 +92,13 @@ jobs:
             --resource-group $RESOURCE_GROUP \
             --allowed-origins "*" 2>/dev/null || true
 
+      - name: Ensure Azure Storage tables exist
+        run: |
+          az storage table create --name ExtractionJobs \
+            --connection-string "${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" 2>/dev/null || true
+          az storage table create --name DesignLibraries \
+            --connection-string "${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" 2>/dev/null || true
+
       - name: Create deployment zip
         run: |
           cd api
