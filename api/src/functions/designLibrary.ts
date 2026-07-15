@@ -509,7 +509,14 @@ async function extractAsyncHandler(req: HttpRequest, context: InvocationContext)
       if (!result.meta) result.meta = {}
       result.meta.name = result.meta.name || name || 'Design System'
       result.meta.extractedAt = new Date().toISOString()
-      await table.upsertEntity({ partitionKey: 'job', rowKey: jobId, status: 'done', result: JSON.stringify(result), updatedAt: new Date().toISOString() })
+      // Table Storage has 64KB per-property limit — store large result in blob
+      const resultJson = JSON.stringify(result)
+      const blobSvc = BlobServiceClient.fromConnectionString(CONN)
+      const blobContainer = blobSvc.getContainerClient('design-library-uploads')
+      const resultBlobName = `jobs/${jobId}/result.json`
+      const resultBlob = blobContainer.getBlockBlobClient(resultBlobName)
+      await resultBlob.uploadData(Buffer.from(resultJson), { blobHTTPHeaders: { blobContentType: 'application/json' } })
+      await table.upsertEntity({ partitionKey: 'job', rowKey: jobId, status: 'done', resultBlobName, updatedAt: new Date().toISOString() })
     } catch (e) {
       await table.upsertEntity({ partitionKey: 'job', rowKey: jobId, status: 'error', error: (e as Error).message, updatedAt: new Date().toISOString() }).catch(() => {})
     }
@@ -528,7 +535,17 @@ async function extractJobHandler(req: HttpRequest, context: InvocationContext): 
     const entity = await table.getEntity('job', jobId)
     const status = entity.status as string
     if (status === 'done') {
-      const result = JSON.parse(entity.result as string)
+      let result: any
+      if (entity.resultBlobName) {
+        // Result stored in blob (too large for table property)
+        const blobSvc = BlobServiceClient.fromConnectionString(CONN)
+        const blobContainer = blobSvc.getContainerClient('design-library-uploads')
+        const blob = blobContainer.getBlockBlobClient(entity.resultBlobName as string)
+        const download = await blob.downloadToBuffer()
+        result = JSON.parse(download.toString())
+      } else {
+        result = JSON.parse(entity.result as string)
+      }
       return { status: 200, headers: JSON_H, jsonBody: { status: 'done', result } }
     }
     if (status === 'error') return { status: 200, headers: JSON_H, jsonBody: { status: 'error', error: entity.error } }
