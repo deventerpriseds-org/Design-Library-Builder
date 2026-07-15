@@ -423,6 +423,38 @@ async function extractHandler(req: HttpRequest, context: InvocationContext): Pro
     }
   })
 
+  // ?sync=1 — wait for full result and return as single JSON (bypasses Azure gateway streaming timeout)
+  const syncMode = req.query.get('sync') === '1'
+  if (syncMode) {
+    return new Promise((resolve) => {
+      let finalResult: any = null
+      const reader = (stream as any).getReader()
+      const dec = new TextDecoder()
+      let buf = ''
+      function pump() {
+        reader.read().then(({ done, value }: { done: boolean; value?: Uint8Array }) => {
+          if (done) {
+            resolve(finalResult
+              ? { status: 200, headers: JSON_H, jsonBody: { type: 'result', data: finalResult } }
+              : { status: 500, headers: JSON_H, jsonBody: { error: 'Extraction failed — no result produced' } })
+            return
+          }
+          buf += dec.decode(value, { stream: true })
+          const lines = buf.split('\n'); buf = lines.pop()!
+          for (const line of lines) {
+            if (!line.trim()) continue
+            try {
+              const evt = JSON.parse(line)
+              if (evt.type === 'result') finalResult = evt.data
+            } catch { /* partial */ }
+          }
+          pump()
+        }).catch((e: Error) => resolve({ status: 500, headers: JSON_H, jsonBody: { error: e.message } }))
+      }
+      pump()
+    })
+  }
+
   return { status: 200, headers: STREAM_H, body: stream as any }
 }
 
