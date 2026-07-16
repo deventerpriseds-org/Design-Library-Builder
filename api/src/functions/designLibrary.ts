@@ -502,7 +502,10 @@ async function extractJobHandler(req: HttpRequest, context: InvocationContext): 
 // ── Queue worker: processes extraction-jobs queue messages ────────────────────
 async function extractionWorker(queueItem: unknown, context: InvocationContext): Promise<void> {
   const raw = Buffer.from(queueItem as string, 'base64').toString('utf8')
-  const { jobId, name, primaryColor, images = [], urls = [], description = '' } = JSON.parse(raw)
+  const parsed = JSON.parse(raw)
+  const { jobId, name, primaryColor, images = [], description = '' } = parsed
+  // accept both `urls` and `imageUrls` (the /upload endpoint returns a URL stored under imageUrls by some callers)
+  const urls: string[] = parsed.urls || parsed.imageUrls || []
   const table = TableClient.fromConnectionString(CONN, 'ExtractionJobs')
   try {
     await table.upsertEntity({ partitionKey: 'job', rowKey: jobId, status: 'running', updatedAt: new Date().toISOString() })
@@ -558,7 +561,9 @@ async function extractionWorker(queueItem: unknown, context: InvocationContext):
     context.log(`extractionWorker: received ${jsonBuf.length} chars from Anthropic`)
 
     const clean = jsonBuf.replace(/^```json?\s*/i, '').replace(/```\s*$/, '').trim()
-    const result = JSON.parse(clean)
+    const diff = JSON.parse(clean)
+    const baseline = buildBaseline(name || 'Design System', diff?.meta?.primaryColor || primaryColor || '', diff?.meta?.fontFamily || '')
+    const result = mergeWithBaseline(baseline, diff)
     if (!result.meta) result.meta = {}
     result.meta.name = result.meta.name || name || 'Design System'
     result.meta.extractedAt = new Date().toISOString()

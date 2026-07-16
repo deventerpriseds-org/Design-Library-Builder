@@ -84,6 +84,8 @@ jobs:
               "GH_PAT=${{ secrets.ghub_key }}" \
               "GH_REPO_OWNER=deventerpriseds-org" \
               "GH_REPO_NAME=Design-Library-Builder" \
+              "FIGMA_ACCESS_TOKEN=${{ secrets.FIGMA_ACCESS_TOKEN }}" \
+              "SUPERNOVA_TOKEN=${{ secrets.SUPERNOVA_AUTH_TOKEN }}" \
               "NODE_ENV=production"
 
       - name: Configure platform CORS

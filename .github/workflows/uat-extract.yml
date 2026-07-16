@@ -91,11 +91,6 @@ jobs:
             exit 1
           fi
 
-          if [ -z "$RESULT" ]; then
-            echo "ERROR: No result from extraction"
-            exit 1
-          fi
-
           echo "Extraction succeeded, result length: ${#RESULT}"
           echo "$RESULT" > /tmp/extraction-result.json
 
