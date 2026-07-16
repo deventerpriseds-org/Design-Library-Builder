@@ -1,0 +1,45 @@
+name: Debug extraction queue and worker
+
+on:
+  workflow_dispatch:
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: '{"clientId":"${{ secrets.AZURE_CLIENT_ID }}","clientSecret":"${{ secrets.AZURE_CLIENT_SECRET }}","subscriptionId":"${{ secrets.AZURE_SUBSCRIPTION_ID }}","tenantId":"${{ secrets.AZURE_TENANT_ID }}"}'
+
+      - name: Check Function App settings (relevant keys)
+        run: |
+          az functionapp config appsettings list \
+            --name design-library-builder-api \
+            --resource-group EnterpriseDS_ResourceGRP \
+            --query "[?name=='AzureWebJobsStorage' || name=='AZURE_STORAGE_CONNECTION_STRING' || name=='ANTHROPIC_API_KEY'].{name:name,hasValue:value!=null}" \
+            -o table
+
+      - name: Check queue depth
+        run: |
+          COUNT=$(az storage queue show \
+            --name extraction-jobs \
+            --connection-string "${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" \
+            --query "approximateMessageCount" -o tsv 2>/dev/null || echo "N/A")
+          echo "extraction-jobs queue depth: $COUNT"
+
+      - name: List ExtractionJobs table (last 5)
+        run: |
+          az storage entity query \
+            --table-name ExtractionJobs \
+            --connection-string "${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" \
+            --select "RowKey,status,error,updatedAt" \
+            -o table 2>/dev/null | head -20
+
+      - name: Check function app functions list
+        run: |
+          az functionapp function list \
+            --name design-library-builder-api \
+            --resource-group EnterpriseDS_ResourceGRP \
+            --query "[].{name:name,isDisabled:isDisabled}" \
+            -o table 2>/dev/null || echo "cannot list functions"
