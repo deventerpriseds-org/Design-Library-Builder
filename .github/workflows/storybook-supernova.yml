@@ -169,8 +169,7 @@ jobs:
             " 2>/dev/null || echo "")
 
           if [ -z "$WORKSPACE_ID" ]; then
-            # Fall back to secret if API shape differs
-            WORKSPACE_ID="${{ secrets.SUPERNOVA_WORKSPACE_ID }}"
+            WORKSPACE_ID="EDS"
           fi
 
           echo "workspace_id=$WORKSPACE_ID" >> $GITHUB_OUTPUT
