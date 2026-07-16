@@ -65,7 +65,7 @@ jobs:
           IMAGE_URL=$(echo "$UPLOAD_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['url'])")
           echo "image_url=$IMAGE_URL" >> $GITHUB_OUTPUT
 
-      - name: Run extraction (streaming endpoint - no proxy here)
+      - name: Run extraction (sync mode - single JSON response)
         id: extract
         run: |
           IMAGE_URL="${{ steps.upload.outputs.image_url }}"
@@ -75,14 +75,21 @@ jobs:
           curl -sL "$IMAGE_URL" -o /tmp/uat-screenshot-dl.png
           B64=$(base64 -w0 /tmp/uat-screenshot-dl.png)
 
-          echo "Calling /extract endpoint..."
-          # Use streaming endpoint directly - GitHub Actions runners are not behind CCR proxy
-          RESULT=$(curl -s -X POST \
-            "https://design-library-builder-api.azurewebsites.net/api/design-library/extract" \
+          echo "Calling /extract?sync=1 endpoint..."
+          # ?sync=1 returns a single JSON object { type: 'result', data: {...} } — no streaming parsing needed
+          SYNC_RESP=$(curl -s -X POST \
+            "https://design-library-builder-api.azurewebsites.net/api/design-library/extract?sync=1" \
             -H "Content-Type: application/json" \
-            --max-time 120 \
-            -d "{\"name\":\"$LIBRARY_NAME\",\"images\":[{\"dataUrl\":\"data:image/png;base64,$B64\"}]}" \
-            | grep '^data:' | grep '"type":"result"' | tail -1 | sed 's/^data: //')
+            --max-time 180 \
+            -d "{\"name\":\"$LIBRARY_NAME\",\"images\":[{\"dataUrl\":\"data:image/png;base64,$B64\"}]}")
+
+          echo "Raw response (first 200 chars): ${SYNC_RESP:0:200}"
+
+          RESULT=$(echo "$SYNC_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps(d['data']))" 2>/dev/null || echo "")
+          if [ -z "$RESULT" ] || [ "$RESULT" = "null" ]; then
+            echo "ERROR: Extraction returned no data. Full response: $SYNC_RESP"
+            exit 1
+          fi
 
           if [ -z "$RESULT" ]; then
             echo "ERROR: No result from extraction"
