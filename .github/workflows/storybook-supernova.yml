@@ -159,7 +159,10 @@ jobs:
           DESCRIBE=$(supernova describe-workspaces --apiKey "$SUPERNOVA_TOKEN" 2>&1 || echo "")
           echo "$DESCRIBE"
 
-          DS_ID=$(echo "$DESCRIBE" | grep -oP '(?<="id"\s*:\s*")[^"]+' | head -1 || echo "")
+          DS_ID=$(echo "$DESCRIBE" | grep 'Design system' | grep -o 'id: [0-9]*' | grep -o '[0-9]*' | head -1 || echo "")
+          if [ -z "$DS_ID" ]; then
+            DS_ID="844460"
+          fi
           echo "design_system_id=$DS_ID" >> $GITHUB_OUTPUT
           echo "Supernova design system ID: $DS_ID"
 
