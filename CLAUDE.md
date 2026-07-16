@@ -57,14 +57,17 @@ When adding a new secret: add it to GitHub secrets **and** to the `--settings` l
 
 ## UAT / Testing Rules
 
-### CCR environment limitation — extract endpoint cannot be called from Claude sessions
+### How Claude runs end-to-end UAT from a CCR session
 
-`POST /design-library/extract` **streams NDJSON**. The CCR outbound proxy does not support streaming HTTP responses and returns 502 immediately. This means:
+`POST /design-library/extract` streams NDJSON, which the CCR outbound proxy cannot handle (returns 502). The workaround is the **async extract path** built for exactly this purpose:
 
-- **Claude cannot run end-to-end UAT from a CCR session.** Upload works (multipart/form-data, no streaming). Extract does not.
-- **Do NOT attempt to call `/extract` via curl or Python from this environment.** It will always 502 — this is a proxy limitation, not a bug in the code.
-- **The user must run UAT in the browser** at https://brave-coast-0274be70f.7.azurestaticapps.net, sign in with Microsoft, and walk the Upload → Extract → Export (Save) → Libraries flow themselves.
-- Claude can verify individual steps before and after: use GitHub Actions workflows (with org secrets) to check table contents, check workflow run conclusions, and hit non-streaming endpoints (`/health`, `/upload`, `/saved`, `/save`).
+1. **Upload**: `POST /design-library/upload` (multipart/form-data) — works fine through CCR proxy, returns `{ url }`.
+2. **Extract async**: `POST /design-library/extract-async` with `{ imageUrls: [url] }` — returns `{ jobId }` immediately (no streaming). The Azure Queue worker runs the actual Anthropic extraction independently.
+3. **Poll**: `GET /design-library/extract-job/{jobId}` — poll until `status === 'done'`, then read `result` from the response.
+4. **Save**: `POST /design-library/save` with the result — writes to `DesignLibraries` table.
+5. **Verify**: Trigger `debug-table.yml` workflow and confirm the row appears.
+
+**Never call `/design-library/extract` (the streaming endpoint) directly from curl/Python in a CCR session — it always 502s.** Use `/extract-async` + poll instead.
 
 ### DesignLibraries table — save/list model
 
@@ -135,7 +138,9 @@ All on `https://design-library-builder-api.azurewebsites.net/api/`:
 | Endpoint | Purpose |
 |----------|---------|
 | `GET  /health` | Health + config status check |
-| `POST /design-library/extract` | Run Claude design extraction (streams NDJSON progress) |
+| `POST /design-library/extract` | Run Claude design extraction (streams NDJSON — **do not call from CCR**) |
+| `POST /design-library/extract-async` | Enqueue extraction job, returns `{ jobId }` immediately — use this from CCR |
+| `GET  /design-library/extract-job/{jobId}` | Poll job status: `{ status: 'pending'\|'done'\|'error', result? }` |
 | `POST /design-library/push-figma` | Push extracted tokens back to Figma |
 | `POST /design-library/patch-figma` | Patch existing Figma tokens |
 | `POST /design-library/stories` | Generate Storybook story files from extraction result |

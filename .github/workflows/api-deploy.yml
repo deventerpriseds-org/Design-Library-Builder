@@ -2,7 +2,7 @@ name: Deploy API to Azure Functions
 
 on:
   push:
-    branches: [main, claude/figma-design-library-generator-esrbk9, claude/figma-builder-app-copy-xeidub]
+    branches: [main, claude/figma-design-library-generator-esrbk9, claude/figma-builder-app-copy-xeidub, claude/design-system-extraction-rijyng]
     paths:
       - 'api/**'
       - '.github/workflows/api-deploy.yml'
@@ -74,6 +74,7 @@ jobs:
             --settings \
               "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" \
               "AZURE_STORAGE_CONNECTION_STRING=${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" \
+              "AzureWebJobsStorage=${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" \
               "MICROSOFT_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}" \
               "MICROSOFT_CLIENT_SECRET=${{ secrets.AZURE_CLIENT_SECRET }}" \
               "MICROSOFT_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}" \
