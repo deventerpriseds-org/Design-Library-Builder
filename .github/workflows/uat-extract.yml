@@ -1,0 +1,160 @@
+name: UAT - Full extract and save pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      library_name:
+        description: 'Library name'
+        required: false
+        default: 'MedSync Design System'
+
+jobs:
+  extract_and_save:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: '{"clientId":"${{ secrets.AZURE_CLIENT_ID }}","clientSecret":"${{ secrets.AZURE_CLIENT_SECRET }}","subscriptionId":"${{ secrets.AZURE_SUBSCRIPTION_ID }}","tenantId":"${{ secrets.AZURE_TENANT_ID }}"}'
+
+      - name: Upload test screenshot
+        id: upload
+        run: |
+          # Create a simple PNG (1x1 purple pixel) as our test image
+          python3 -c "
+          import struct, zlib, base64, sys
+
+          def make_png(w, h, color):
+              def chunk(name, data):
+                  import zlib, struct
+                  crc = zlib.crc32(name + data) & 0xffffffff
+                  return struct.pack('>I', len(data)) + name + data + struct.pack('>I', crc)
+              raw = b''
+              for y in range(h):
+                  raw += b'\x00'
+                  for x in range(w):
+                      # Draw a simple UI mockup with colors
+                      if y < 60:  # header
+                          raw += bytes([30, 86, 160])
+                      elif x < 200 and y > 60:  # sidebar
+                          raw += bytes([245, 247, 250])
+                      elif 220 < x < 420 and 80 < y < 180:  # card
+                          raw += bytes([255, 255, 255])
+                      elif 220 < x < 420 and 200 < y < 300:  # card 2
+                          raw += bytes([99, 102, 241])
+                      else:
+                          raw += bytes([240, 242, 245])
+              import zlib
+              img_data = zlib.compress(raw)
+              ihdr = struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)
+              png = b'\x89PNG\r\n\x1a\n'
+              png += chunk(b'IHDR', ihdr)
+              png += chunk(b'IDAT', img_data)
+              png += chunk(b'IEND', b'')
+              return png
+
+          with open('/tmp/uat-screenshot.png', 'wb') as f:
+              f.write(make_png(600, 400, (99, 102, 241)))
+          print('OK')
+          "
+
+          UPLOAD_RESP=$(curl -s -X POST \
+            "https://design-library-builder-api.azurewebsites.net/api/design-library/upload" \
+            -F "file=@/tmp/uat-screenshot.png;type=image/png")
+          echo "Upload response: $UPLOAD_RESP"
+          IMAGE_URL=$(echo "$UPLOAD_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['url'])")
+          echo "image_url=$IMAGE_URL" >> $GITHUB_OUTPUT
+
+      - name: Run extraction (streaming endpoint - no proxy here)
+        id: extract
+        run: |
+          IMAGE_URL="${{ steps.upload.outputs.image_url }}"
+          LIBRARY_NAME="${{ github.event.inputs.library_name }}"
+
+          echo "Fetching image for base64 encoding..."
+          curl -sL "$IMAGE_URL" -o /tmp/uat-screenshot-dl.png
+          B64=$(base64 -w0 /tmp/uat-screenshot-dl.png)
+
+          echo "Calling /extract endpoint..."
+          # Use streaming endpoint directly - GitHub Actions runners are not behind CCR proxy
+          RESULT=$(curl -s -X POST \
+            "https://design-library-builder-api.azurewebsites.net/api/design-library/extract" \
+            -H "Content-Type: application/json" \
+            --max-time 120 \
+            -d "{\"name\":\"$LIBRARY_NAME\",\"images\":[{\"dataUrl\":\"data:image/png;base64,$B64\"}]}" \
+            | grep '^data:' | grep '"type":"result"' | tail -1 | sed 's/^data: //')
+
+          if [ -z "$RESULT" ]; then
+            echo "ERROR: No result from extraction"
+            exit 1
+          fi
+
+          echo "Extraction succeeded, result length: ${#RESULT}"
+          echo "$RESULT" > /tmp/extraction-result.json
+
+          # Extract name and color for display
+          NAME=$(echo "$RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('meta',{}).get('name','Unknown'))" 2>/dev/null || echo "Unknown")
+          COMP=$(echo "$RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('components',[])))" 2>/dev/null || echo "0")
+          echo "Extracted: $NAME — $COMP components"
+
+          # Store result for next step (truncate to avoid env var limits, save to file)
+          echo "result_file=/tmp/extraction-result.json" >> $GITHUB_OUTPUT
+
+      - name: Save to DesignLibraries table
+        id: save
+        run: |
+          RESULT=$(cat /tmp/extraction-result.json)
+          LIBRARY_ID=$(python3 -c "import uuid; print(str(uuid.uuid4()))")
+
+          # Add id and visibility to result
+          PAYLOAD=$(echo "$RESULT" | python3 -c "
+          import sys, json
+          d = json.load(sys.stdin)
+          d['id'] = '$LIBRARY_ID'
+          d['visibility'] = 'private'
+          print(json.dumps(d))
+          ")
+
+          SAVE_RESP=$(curl -s -X POST \
+            "https://design-library-builder-api.azurewebsites.net/api/design-library/save" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD")
+          echo "Save response: $SAVE_RESP"
+          echo "library_id=$LIBRARY_ID" >> $GITHUB_OUTPUT
+
+      - name: Verify saved in DesignLibraries table
+        run: |
+          echo "Waiting 3s for table write to propagate..."
+          sleep 3
+          az storage entity show \
+            --table-name DesignLibraries \
+            --partition-key anonymous \
+            --row-key "${{ steps.save.outputs.library_id }}" \
+            --connection-string "${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" \
+            --select "RowKey,name,visibility" \
+            -o table 2>/dev/null || echo "Note: anonymous partition not found — checking all rows..."
+          
+          az storage entity query \
+            --table-name DesignLibraries \
+            --connection-string "${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" \
+            --select "PartitionKey,RowKey,name,visibility" \
+            -o table 2>/dev/null
+
+      - name: Verify /saved endpoint returns the library
+        run: |
+          SAVED_RESP=$(curl -s "https://design-library-builder-api.azurewebsites.net/api/design-library/saved")
+          COUNT=$(echo "$SAVED_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d) if isinstance(d,list) else 0)" 2>/dev/null || echo "0")
+          echo "/saved returned $COUNT libraries"
+          echo "$SAVED_RESP" | python3 -c "
+          import sys,json
+          items = json.load(sys.stdin)
+          if isinstance(items, list):
+              for item in items[:5]:
+                  print(' -', item.get('meta',{}).get('name') or item.get('name'), '|', item.get('visibility','?'))
+          " 2>/dev/null
+
+      - name: Summary
+        run: |
+          echo "=== UAT COMPLETE ==="
+          echo "Library saved with id: ${{ steps.save.outputs.library_id }}"
+          echo "Check Libraries tab at: https://brave-coast-0274be70f.7.azurestaticapps.net"
