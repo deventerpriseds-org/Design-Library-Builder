@@ -175,7 +175,6 @@ jobs:
           echo "Importing Storybook static export to Supernova design system $DS_ID"
 
           supernova storybook-import \
-            --apiKey "$SUPERNOVA_TOKEN" \
             --designSystemId "$DS_ID" \
             --from storybook/storybook-static \
             --name "main"
