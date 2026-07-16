@@ -591,13 +591,14 @@ async function saveHandler(req: HttpRequest, context: InvocationContext): Promis
   try { body = await req.json() } catch { return { status: 400, headers: JSON_H, jsonBody: { error: 'Invalid JSON' } } }
 
   const id = (body.id || crypto.randomUUID()) as string
-  const userId = extractUserId(req) || 'anonymous'
+  const savedBy = extractUserId(req) || 'anonymous'
 
   try {
     const client = TableClient.fromConnectionString(CONN, TABLE)
     await client.upsertEntity({
-      partitionKey: userId,
+      partitionKey: 'org',
       rowKey: id,
+      savedBy,
       id,
       name: body.meta?.name || 'Unnamed',
       data: JSON.stringify(body),
@@ -612,11 +613,11 @@ async function saveHandler(req: HttpRequest, context: InvocationContext): Promis
 // ── List endpoint ─────────────────────────────────────────────────────────────
 async function listHandler(req: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   if (req.method === 'OPTIONS') return { status: 204, headers: CORS }
-  const userId = extractUserId(req) || 'anonymous'
   try {
     const client = TableClient.fromConnectionString(CONN, TABLE)
     const items: any[] = []
-    for await (const e of client.listEntities({ queryOptions: { filter: odata`PartitionKey eq ${userId}` } })) {
+    // Org-wide: query both 'org' partition (current) and legacy per-user partitions
+    for await (const e of client.listEntities()) {
       try { items.push(JSON.parse(e.data as string)) } catch { /* skip corrupt */ }
     }
     return { status: 200, headers: JSON_H, jsonBody: items }
