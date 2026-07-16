@@ -43,6 +43,7 @@ function LibraryCard({ system, onSelect }) {
   const sbUrl = storybookUrl(name)
   const componentCount = system.components?.length || 0
   const tokenCount = Object.keys(system.colors || {}).length + Object.keys(system.typography || {}).length
+  const isPublic = system.visibility === 'public'
 
   const savedAt = system.savedAt || system.createdAt
   const dateLabel = savedAt ? new Date(savedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null
@@ -64,7 +65,13 @@ function LibraryCard({ system, onSelect }) {
       <div style={{ padding: '16px 20px 20px' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 12 }}>
           <div>
-            <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--dlg-text)', marginBottom: 2 }}>{name}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+              <span style={{ fontWeight: 700, fontSize: 16, color: 'var(--dlg-text)' }}>{name}</span>
+              <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4,
+                background: isPublic ? '#6366f118' : 'var(--dlg-border)', color: isPublic ? 'var(--dlg-brand)' : 'var(--dlg-text-3)' }}>
+                {isPublic ? 'Public' : 'Private'}
+              </span>
+            </div>
             {dateLabel && <div style={{ fontSize: 12, color: 'var(--dlg-text-3)' }}>{dateLabel}</div>}
           </div>
           <div style={{ width: 32, height: 32, borderRadius: 8, background: brand, flexShrink: 0 }} />

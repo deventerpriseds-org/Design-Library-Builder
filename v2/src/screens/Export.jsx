@@ -128,6 +128,7 @@ export default function Export() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [saveErr, setSaveErr] = useState('')
+  const [visibility, setVisibility] = useState('private')
 
   if (!state.result) {
     return (
@@ -151,8 +152,8 @@ export default function Export() {
     if (!state.user) { go('/upload'); return }
     setSaving(true); setSaveErr('')
     try {
-      const saved = await saveDesignSystem({ ...r, id: r.id || crypto.randomUUID() })
-      dispatch({ type: 'ADD_SAVED', system: saved })
+      const savedResult = await saveDesignSystem({ ...r, id: r.id || crypto.randomUUID(), visibility })
+      dispatch({ type: 'ADD_SAVED', system: savedResult })
       setSaved(true)
     } catch (e) { setSaveErr(e.message) }
     setSaving(false)
@@ -200,17 +201,43 @@ export default function Export() {
 
       {/* Save to account */}
       {!saved && (
-        <div className="dlg-banner dlg-banner-info" style={{ marginBottom: 24, justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
-          <div>
-            <div className="t-sm" style={{ fontWeight: 600 }}>{state.user ? 'Save to your account' : 'Sign in to save'}</div>
-            <div className="t-sm">Saved systems appear in the Showcase dropdown for live preview.</div>
+        <div className="dlg-banner dlg-banner-info" style={{ marginBottom: 24, flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10 }}>
+            <div>
+              <div className="t-sm" style={{ fontWeight: 600 }}>{state.user ? 'Save to your account' : 'Sign in to save'}</div>
+              <div className="t-sm">Saved systems appear in Libraries and the Showcase dropdown.</div>
+            </div>
+            <button className="dlg-btn dlg-btn-primary" disabled={saving} onClick={handleSave} style={{ flexShrink: 0 }}>
+              {saving ? 'Saving…' : state.user ? 'Save Library' : 'Sign in & Save'}
+            </button>
           </div>
-          <button className="dlg-btn dlg-btn-primary" disabled={saving} onClick={handleSave} style={{ flexShrink: 0 }}>
-            {saving ? 'Saving…' : state.user ? 'Save Library' : 'Sign in & Save'}
-          </button>
+          {state.user && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span className="t-sm" style={{ color: 'var(--dlg-text-2)' }}>Visibility:</span>
+              <button
+                onClick={() => setVisibility('private')}
+                style={{ padding: '3px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600, border: '1px solid',
+                  borderColor: visibility === 'private' ? 'var(--dlg-brand)' : 'var(--dlg-border)',
+                  background: visibility === 'private' ? 'var(--dlg-brand-soft)' : 'transparent',
+                  color: visibility === 'private' ? 'var(--dlg-brand)' : 'var(--dlg-text-2)', cursor: 'pointer' }}>
+                Private
+              </button>
+              <button
+                onClick={() => setVisibility('public')}
+                style={{ padding: '3px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600, border: '1px solid',
+                  borderColor: visibility === 'public' ? 'var(--dlg-brand)' : 'var(--dlg-border)',
+                  background: visibility === 'public' ? 'var(--dlg-brand-soft)' : 'transparent',
+                  color: visibility === 'public' ? 'var(--dlg-brand)' : 'var(--dlg-text-2)', cursor: 'pointer' }}>
+                Public (org)
+              </button>
+              <span className="t-sm" style={{ color: 'var(--dlg-text-3)' }}>
+                {visibility === 'private' ? 'Only you can see this library.' : 'All org members can see this library.'}
+              </span>
+            </div>
+          )}
         </div>
       )}
-      {saved && <div className="dlg-banner dlg-banner-success" style={{ marginBottom: 24 }}>✓ Saved — visible in Showcase dropdown</div>}
+      {saved && <div className="dlg-banner dlg-banner-success" style={{ marginBottom: 24 }}>✓ Saved — visible in Libraries and Showcase</div>}
       {saveErr && <div className="dlg-banner dlg-banner-error" style={{ marginBottom: 16 }}>{saveErr}</div>}
 
       {/* Download cards */}

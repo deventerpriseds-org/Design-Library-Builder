@@ -591,20 +591,21 @@ async function saveHandler(req: HttpRequest, context: InvocationContext): Promis
   try { body = await req.json() } catch { return { status: 400, headers: JSON_H, jsonBody: { error: 'Invalid JSON' } } }
 
   const id = (body.id || crypto.randomUUID()) as string
-  const savedBy = extractUserId(req) || 'anonymous'
+  const userId = extractUserId(req) || 'anonymous'
+  const visibility = body.visibility === 'public' ? 'public' : 'private'
 
   try {
     const client = TableClient.fromConnectionString(CONN, TABLE)
     await client.upsertEntity({
-      partitionKey: 'org',
+      partitionKey: userId,
       rowKey: id,
-      savedBy,
       id,
       name: body.meta?.name || 'Unnamed',
-      data: JSON.stringify(body),
+      visibility,
+      data: JSON.stringify({ ...body, visibility }),
       createdAt: new Date().toISOString(),
     })
-    return { status: 200, headers: JSON_H, jsonBody: { ...body, id } }
+    return { status: 200, headers: JSON_H, jsonBody: { ...body, id, visibility } }
   } catch (e) {
     return { status: 500, headers: JSON_H, jsonBody: { error: (e as Error).message } }
   }
@@ -613,12 +614,15 @@ async function saveHandler(req: HttpRequest, context: InvocationContext): Promis
 // ── List endpoint ─────────────────────────────────────────────────────────────
 async function listHandler(req: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   if (req.method === 'OPTIONS') return { status: 204, headers: CORS }
+  const userId = extractUserId(req) || 'anonymous'
   try {
     const client = TableClient.fromConnectionString(CONN, TABLE)
     const items: any[] = []
-    // Org-wide: query both 'org' partition (current) and legacy per-user partitions
+    // Return own items (any visibility) + public items from other users
     for await (const e of client.listEntities()) {
-      try { items.push(JSON.parse(e.data as string)) } catch { /* skip corrupt */ }
+      if (e.partitionKey === userId || (e as any).visibility === 'public') {
+        try { items.push(JSON.parse(e.data as string)) } catch { /* skip corrupt */ }
+      }
     }
     return { status: 200, headers: JSON_H, jsonBody: items }
   } catch {
