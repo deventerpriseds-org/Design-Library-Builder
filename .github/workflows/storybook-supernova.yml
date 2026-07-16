@@ -147,58 +147,38 @@ jobs:
           output_location: ''
           skip_app_build: true
 
-      - name: Resolve Supernova workspace ID
+      - name: Install Supernova CLI
+        run: npm install -g @supernovaio/cli@2.2.5
+
+      - name: Resolve Supernova design system ID
         id: supernova_ws
         env:
           SUPERNOVA_TOKEN: ${{ secrets.SUPERNOVA_AUTH_TOKEN }}
         run: |
-          # Query Supernova API to get workspace ID from the token
-          WORKSPACE_ID=$(curl -s \
-            -H "Authorization: Bearer $SUPERNOVA_TOKEN" \
-            "https://api.supernova.io/api/sdk/2/workspaces" \
-            | node -e "
-              let d='';
-              process.stdin.on('data',c=>d+=c);
-              process.stdin.on('end',()=>{
-                try {
-                  const r=JSON.parse(d);
-                  const ws=r?.result?.workspaces||r?.workspaces||[];
-                  console.log(ws[0]?.id||'');
-                } catch { console.log(''); }
-              });
-            " 2>/dev/null || echo "")
+          # Use CLI to list workspaces and extract first design system ID
+          DESCRIBE=$(supernova describe-workspaces --apiKey "$SUPERNOVA_TOKEN" 2>&1 || echo "")
+          echo "$DESCRIBE"
 
-          if [ -z "$WORKSPACE_ID" ]; then
-            WORKSPACE_ID="EDS"
-          fi
+          DS_ID=$(echo "$DESCRIBE" | grep -oP '(?<="id"\s*:\s*")[^"]+' | head -1 || echo "")
+          echo "design_system_id=$DS_ID" >> $GITHUB_OUTPUT
+          echo "Supernova design system ID: $DS_ID"
 
-          echo "workspace_id=$WORKSPACE_ID" >> $GITHUB_OUTPUT
-          if [ -n "$WORKSPACE_ID" ]; then
-            echo "Supernova workspace: $WORKSPACE_ID"
-          else
-            echo "Warning: could not resolve Supernova workspace ID"
-          fi
-
-      - name: Install Supernova CLI
-        run: npm install -g @supernovaio/cli 2>/dev/null || npm install -g supernova-cli 2>/dev/null || true
-
-      - name: Sync Storybook stories to Supernova
-        if: steps.supernova_ws.outputs.workspace_id != '' && steps.swa.outputs.hostname != ''
+      - name: Import Storybook to Supernova
+        if: steps.supernova_ws.outputs.design_system_id != ''
         env:
           SUPERNOVA_TOKEN: ${{ secrets.SUPERNOVA_AUTH_TOKEN }}
         run: |
-          STORYBOOK_URL="https://${{ steps.swa.outputs.hostname }}"
-          WS_ID="${{ steps.supernova_ws.outputs.workspace_id }}"
-          echo "Syncing Storybook at $STORYBOOK_URL to Supernova workspace $WS_ID"
+          DS_ID="${{ steps.supernova_ws.outputs.design_system_id }}"
+          echo "Importing Storybook static export to Supernova design system $DS_ID"
 
-          supernova import-storybook \
-            --token "$SUPERNOVA_TOKEN" \
-            --workspace "$WS_ID" \
-            --storybook-url "$STORYBOOK_URL" \
-          || echo "Note: CLI command may differ — check Supernova docs for exact syntax"
+          supernova storybook-import \
+            --apiKey "$SUPERNOVA_TOKEN" \
+            --designSystemId "$DS_ID" \
+            --from storybook/storybook-static \
+            --name "main"
 
       - name: Sync Figma tokens to Supernova
-        if: steps.check_events.outputs.trigger == 'schedule' && steps.supernova_ws.outputs.workspace_id != ''
+        if: steps.check_events.outputs.trigger == 'schedule' && steps.supernova_ws.outputs.design_system_id != ''
         env:
           SUPERNOVA_TOKEN: ${{ secrets.SUPERNOVA_AUTH_TOKEN }}
           FIGMA_TOKEN: ${{ secrets.FIGMA_ACCESS_TOKEN }}
