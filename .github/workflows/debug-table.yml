@@ -17,7 +17,7 @@ jobs:
             const { TableClient } = require('@azure/data-tables');
             async function main() {
               const client = TableClient.fromConnectionString(
-                process.env.AZURE_STORAGE_CONNECTION_STRING, 'DesignLibrary'
+                process.env.AZURE_STORAGE_CONNECTION_STRING, 'DesignLibraries'
               );
               let count = 0;
               for await (const e of client.listEntities()) {
