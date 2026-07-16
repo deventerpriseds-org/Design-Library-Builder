@@ -56,7 +56,7 @@ export function Shell({ children }) {
         </button>
         {signedIn ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {!mobile && <span style={{ fontSize: 13, color: 'var(--dlg-text-2)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{state.user.email}</span>}
+            <span style={{ fontSize: 13, color: 'var(--dlg-text-2)', maxWidth: mobile ? 120 : 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{state.user.email}</span>
             <button className="dlg-btn dlg-btn-ghost" onClick={handleSignOut} style={{ fontSize: 12, padding: '0 8px' }}>Sign out</button>
           </div>
         ) : (
@@ -126,7 +126,7 @@ export function Shell({ children }) {
         <nav style={{ position: 'fixed', bottom: 0, left: 0, right: 0, height: 60,
           display: 'flex', alignItems: 'stretch',
           background: 'var(--dlg-surface)', borderTop: '1px solid var(--dlg-border)', zIndex: 20 }}>
-          {NAV.slice(0, 5).map((n) => {
+          {NAV.map((n) => {
             const on = active === n.path
             return (
               <button key={n.path} onClick={() => go(n.path)}

@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react'
 import { AppProvider, useApp, useRoute } from './state.jsx'
 import { Shell } from './shell.jsx'
-import { handleGoogleCallback } from './auth.js'
+import { handleGoogleCallback, initMicrosoft } from './auth.js'
 import Upload from './screens/Upload.jsx'
 import Extract from './screens/Extract.jsx'
 import Review from './screens/Review.jsx'
@@ -15,6 +15,10 @@ function Router() {
   const { path } = useRoute()
 
   useEffect(() => {
+    // Initialize MSAL on startup so popup windows can hand off auth tokens
+    initMicrosoft().then((user) => {
+      if (user) dispatch({ type: 'SET_USER', user })
+    }).catch(console.error)
     // Handle Google OAuth callback — runs once on load
     handleGoogleCallback().then((user) => {
       if (user) dispatch({ type: 'SET_USER', user })

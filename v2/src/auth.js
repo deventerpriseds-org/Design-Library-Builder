@@ -105,3 +105,20 @@ export async function signOut() {
   setSessionToken(null)
   try { const app = await getMsal(); const a = app.getAllAccounts?.()[0]; if (a) await app.clearCache?.() } catch {}
 }
+
+// Must be called on app startup so MSAL can handle popup redirects inside the popup window.
+// Without this, the popup window loads the app but MSAL never initializes, leaving the popup open.
+export async function initMicrosoft() {
+  if (!MS_CLIENT_ID) return null
+  try {
+    const app = await getMsal()
+    const result = await app.handleRedirectPromise()
+    if (result?.account) {
+      const acct = result.account
+      const user = { email: acct.username, name: acct.name || acct.username, provider: 'microsoft' }
+      saveUser(user)
+      return user
+    }
+  } catch { /* non-fatal */ }
+  return null
+}
