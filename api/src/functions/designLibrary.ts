@@ -930,15 +930,15 @@ export default {
     label: { control: 'text' },
     disabled: { control: 'boolean' },
   },
-}
-
-export const Default = {
-  args: { label: '${c.name}', disabled: false },
   render: (args) => (
     <div style={{ display: 'inline-flex', alignItems: 'center', padding: '0 16px', height: 38, borderRadius: ${radius}, background: '${primary}', color: '#fff', fontWeight: 500, fontSize: 14, cursor: args.disabled ? 'not-allowed' : 'pointer', opacity: args.disabled ? 0.4 : 1 }}>
       {args.label}
     </div>
   ),
+}
+
+export const Default = {
+  args: { label: '${c.name}', disabled: false },
 }
 ${storyContent}
 `,

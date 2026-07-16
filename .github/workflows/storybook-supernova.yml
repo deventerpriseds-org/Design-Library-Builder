@@ -150,7 +150,7 @@ jobs:
       - name: Resolve Supernova workspace ID
         id: supernova_ws
         env:
-          SUPERNOVA_TOKEN: ${{ secrets.SUPERNOVA_TOKEN }}
+          SUPERNOVA_TOKEN: ${{ secrets.SUPERNOVA_AUTH_TOKEN }}
         run: |
           # Query Supernova API to get workspace ID from the token
           WORKSPACE_ID=$(curl -s \
@@ -186,7 +186,7 @@ jobs:
       - name: Sync Storybook stories to Supernova
         if: steps.supernova_ws.outputs.workspace_id != '' && steps.swa.outputs.hostname != ''
         env:
-          SUPERNOVA_TOKEN: ${{ secrets.SUPERNOVA_TOKEN }}
+          SUPERNOVA_TOKEN: ${{ secrets.SUPERNOVA_AUTH_TOKEN }}
         run: |
           STORYBOOK_URL="https://${{ steps.swa.outputs.hostname }}"
           WS_ID="${{ steps.supernova_ws.outputs.workspace_id }}"
@@ -201,7 +201,7 @@ jobs:
       - name: Sync Figma tokens to Supernova
         if: steps.check_events.outputs.trigger == 'schedule' && steps.supernova_ws.outputs.workspace_id != ''
         env:
-          SUPERNOVA_TOKEN: ${{ secrets.SUPERNOVA_TOKEN }}
+          SUPERNOVA_TOKEN: ${{ secrets.SUPERNOVA_AUTH_TOKEN }}
           FIGMA_TOKEN: ${{ secrets.FIGMA_ACCESS_TOKEN }}
           AZURE_STORAGE_CONNECTION_STRING: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
         run: |
