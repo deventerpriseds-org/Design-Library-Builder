@@ -165,5 +165,33 @@ jobs:
           output_location: ""
           skip_app_build: true
 
+      - name: Register redirect URI on Azure AD app
+        if: steps.msid.outputs.client_id != ''
+        run: |
+          APP_ID="${{ steps.msid.outputs.client_id }}"
+          NEW_URI="https://${{ steps.swa.outputs.hostname }}"
+          echo "Registering redirect URI: $NEW_URI on app $APP_ID"
+
+          # Get current redirect URIs
+          CURRENT=$(az ad app show --id "$APP_ID" \
+            --query "web.redirectUris" -o json 2>/dev/null || echo "[]")
+
+          # Check if already present
+          if echo "$CURRENT" | grep -qF "$NEW_URI"; then
+            echo "Redirect URI already registered — skipping"
+          else
+            # Merge and update
+            mapfile -t URIS < <(echo "$CURRENT" | node -e "
+              let d=''; process.stdin.on('data',c=>d+=c);
+              process.stdin.on('end',()=>{
+                const uris=JSON.parse(d);
+                uris.push('$NEW_URI');
+                uris.forEach(u=>console.log(u));
+              });
+            ")
+            az ad app update --id "$APP_ID" --web-redirect-uris "${URIS[@]}"
+            echo "Redirect URI registered"
+          fi
+
       - name: Print app URL
         run: echo "v2 deployed to https://${{ steps.swa.outputs.hostname }}"
