@@ -72,7 +72,7 @@ An API returning 200 is NOT confirmation the downstream effect happened.
 
 **You must check the actual GitHub Actions run result for the storybook-supernova.yml workflow and confirm `conclusion: success` before declaring UAT complete on the Storybook step.** If the build is failing, report it as a blocker — do not declare UAT done and do not fabricate a passing state.
 
-### Current known pipeline status (last verified 2026-07-15)
+### Current known pipeline status (last verified 2026-07-16)
 
 | Step | Status | Notes |
 |------|--------|-------|
@@ -80,9 +80,15 @@ An API returning 200 is NOT confirmation the downstream effect happened.
 | Extract → Anthropic → design system | ✅ Working | ~18s with baseline+diff approach |
 | `/stories` → generate story files | ✅ Working | 14 files for MedSync |
 | `/commit-stories` → push to repo | ✅ Working | Uses org secret `ghub_key` → Function App env `GH_PAT` |
-| Storybook build (`storybook-supernova.yml`) | ✅ Working | Confirmed `conclusion: success` on run 29458317757 |
-| Deploy Storybook to SWA | ✅ Working | https://lively-field-0cff9e30f.7.azurestaticapps.net (HTTP 200) |
-| Supernova sync | ⚠️ Unverified | Workflow runs but `SUPERNOVA_WORKSPACE_ID` was blank in logs — sync may be silently skipping |
+| Storybook build (`storybook-supernova.yml`) | ✅ Working | Confirmed `conclusion: success` on run 29496374325 |
+| Deploy Storybook to SWA | ✅ Working | https://lively-field-0cff9e30f.7.azurestaticapps.net |
+| Supernova import (`storybook-import`) | ✅ Working | Confirmed `conclusion: success` on run 29496374325 — design system 844460 |
+| v2 app | ✅ Working | https://brave-coast-0274be70f.7.azurestaticapps.net |
+
+**Supernova CLI notes (v2.2.5):**
+- `describe-workspaces` uses `--apiKey` flag — workspace EDS id: 784731, design system "My Design System" id: 844460
+- `storybook-import` does NOT use `--apiKey` — reads `SUPERNOVA_TOKEN` env var automatically
+- Secret name in GitHub org: `SUPERNOVA_AUTH_TOKEN` (not `SUPERNOVA_TOKEN`)
 
 ## Deploy Commands
 
