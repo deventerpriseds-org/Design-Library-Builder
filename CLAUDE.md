@@ -10,7 +10,7 @@
 - **Frontend (v2 app)**: Static Web App deployed by `.github/workflows/deploy-app-v2.yml`. When someone says "the app", this is it.
 - **Storybook**: Static Web App `design-library-builder-storybook` — deployed by `storybook-supernova.yml` after each build
 - **Storage Account**: n8nstxpdthydai6fkm (shared org storage)
-- **Storage Tables**: `FigmaEvents` (Figma webhook queue), `AppConfig`
+- **Storage Tables**: `DesignLibraries` (saved extractions), `FigmaEvents` (Figma webhook queue), `AppConfig`
 - **Storage Container**: `uploads` (image uploads via `/api/upload-image`)
 - **Node runtime**: 22
 
@@ -56,6 +56,30 @@ az account set --subscription 09594120-1b35-4e21-84c6-451ac27175a3
 When adding a new secret: add it to GitHub secrets **and** to the `--settings` list in `.github/workflows/api-deploy.yml` (exact-name match — mismatch silently blanks the setting).
 
 ## UAT / Testing Rules
+
+### CCR environment limitation — extract endpoint cannot be called from Claude sessions
+
+`POST /design-library/extract` **streams NDJSON**. The CCR outbound proxy does not support streaming HTTP responses and returns 502 immediately. This means:
+
+- **Claude cannot run end-to-end UAT from a CCR session.** Upload works (multipart/form-data, no streaming). Extract does not.
+- **Do NOT attempt to call `/extract` via curl or Python from this environment.** It will always 502 — this is a proxy limitation, not a bug in the code.
+- **The user must run UAT in the browser** at https://brave-coast-0274be70f.7.azurestaticapps.net, sign in with Microsoft, and walk the Upload → Extract → Export (Save) → Libraries flow themselves.
+- Claude can verify individual steps before and after: use GitHub Actions workflows (with org secrets) to check table contents, check workflow run conclusions, and hit non-streaming endpoints (`/health`, `/upload`, `/saved`, `/save`).
+
+### DesignLibraries table — save/list model
+
+- Table: `DesignLibraries` (Azure Table Storage, shared org storage account)
+- `partitionKey` = userId extracted from JWT (`extractUserId(req)`) — falls back to `'anonymous'` if no auth header
+- `rowKey` = extraction id (UUID)
+- `visibility` field: `'private'` (default) or `'public'` (opt-in at save time)
+- **listHandler** returns: own rows (any visibility) + rows from other partitions where `visibility = 'public'`
+- **The table starts empty.** Libraries tab shows "no libraries" until the user runs a real extraction and saves it via Export → Save Library.
+
+### Verifying table contents without user involvement
+
+Use the `debug-table.yml` workflow (workflow_dispatch) — it reads `AZURE_STORAGE_CONNECTION_STRING` from org secrets and lists all entities. Trigger it, check the run logs. This is the correct way to verify saves without asking the user.
+
+---
 
 **Never pass UAT with placeholder, demo, fake, or assumed data.** Every test must flow through the real pipeline:
 - Extraction must use actual uploaded screenshots or a real Figma URL — not hardcoded mock results
