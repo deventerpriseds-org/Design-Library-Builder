@@ -1,0 +1,30 @@
+name: Debug — List DesignLibrary table contents
+on:
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Azure data-tables
+        run: npm install @azure/data-tables --prefix /tmp/az-tables --silent 2>/dev/null || true
+
+      - name: List all entities in DesignLibrary table
+        env:
+          AZURE_STORAGE_CONNECTION_STRING: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
+        run: |
+          export NODE_PATH=/tmp/az-tables/node_modules
+          node -e "
+            const { TableClient } = require('@azure/data-tables');
+            async function main() {
+              const client = TableClient.fromConnectionString(
+                process.env.AZURE_STORAGE_CONNECTION_STRING, 'DesignLibrary'
+              );
+              let count = 0;
+              for await (const e of client.listEntities()) {
+                console.log('partitionKey:', e.partitionKey, '| rowKey:', e.rowKey, '| name:', e.name, '| createdAt:', e.createdAt);
+                count++;
+              }
+              console.log('Total rows:', count);
+            }
+            main().catch(e => { console.error(e.message); process.exit(1); });
+          "
