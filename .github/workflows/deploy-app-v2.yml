@@ -172,24 +172,35 @@ jobs:
           NEW_URI="https://${{ steps.swa.outputs.hostname }}"
           echo "Registering redirect URI: $NEW_URI on app $APP_ID"
 
-          # Get current SPA redirect URIs
-          CURRENT=$(az ad app show --id "$APP_ID" \
+          # Get object ID (Graph API needs object ID, not appId/clientId)
+          OBJ_ID=$(az ad app show --id "$APP_ID" --query "id" -o tsv 2>/dev/null || echo "")
+          if [ -z "$OBJ_ID" ]; then
+            echo "Could not resolve object ID for app $APP_ID — skipping"
+            exit 0
+          fi
+
+          # Get current SPA redirect URIs via Graph API
+          CURRENT=$(az rest --method GET \
+            --uri "https://graph.microsoft.com/v1.0/applications/$OBJ_ID" \
             --query "spa.redirectUris" -o json 2>/dev/null || echo "[]")
 
           # Check if already present
           if echo "$CURRENT" | grep -qF "$NEW_URI"; then
             echo "SPA redirect URI already registered — skipping"
           else
-            # Merge and update as SPA platform (required for PKCE auth code flow)
-            mapfile -t URIS < <(echo "$CURRENT" | node -e "
+            # Merge and PATCH as SPA platform (required for PKCE auth code flow)
+            BODY=$(echo "$CURRENT" | node -e "
               let d=''; process.stdin.on('data',c=>d+=c);
               process.stdin.on('end',()=>{
                 const uris=JSON.parse(d);
                 uris.push('$NEW_URI');
-                uris.forEach(u=>console.log(u));
+                console.log(JSON.stringify({spa:{redirectUris:uris}}));
               });
             ")
-            az ad app update --id "$APP_ID" --spa-redirect-uris "${URIS[@]}"
+            az rest --method PATCH \
+              --uri "https://graph.microsoft.com/v1.0/applications/$OBJ_ID" \
+              --headers "Content-Type=application/json" \
+              --body "$BODY"
             echo "SPA redirect URI registered"
           fi
 
