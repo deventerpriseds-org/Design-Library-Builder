@@ -1,5 +1,26 @@
 # Design Library Builder
 
+## Org Skills Repo — deventerpriseds-org/eds-claude-skills
+
+This org maintains a shared Claude Code skills repo cloned into every CCR session at `/workspace/eds-claude-skills`. Always clone and register it at session start:
+
+```bash
+git clone --depth 1 https://github.com/deventerpriseds-org/eds-claude-skills /workspace/eds-claude-skills
+```
+Then call `mcp__Claude_Code_Remote__register_repo_root` with `owner: deventerpriseds-org`, `repo: eds-claude-skills`, `directory: /workspace/eds-claude-skills`.
+
+### Available skills (use these proactively):
+
+| Skill | When to use |
+|-------|-------------|
+| `create-github-repo` | Creating a new GitHub repo (triggers `create-repo.yml` workflow — CCR can't call account-level GitHub API directly) |
+| `define-acceptance-criteria` | **Before coding any feature/fix** — extract verifiable ACs and get sign-off first |
+| `verify-work` | **After implementing** — map ACs to test cases, run them, report observed evidence only. "Should work" is banned. |
+| `setup-environment` | Install CLI tools (az, gh, vercel, supabase, etc.) in a CCR session |
+| `setup-mcp` | Add MCP servers to a project |
+
+All org secrets are inherited automatically — no per-repo config needed.
+
 ## Azure Infrastructure
 
 - **Resource Group**: EnterpriseDS_ResourceGRP
