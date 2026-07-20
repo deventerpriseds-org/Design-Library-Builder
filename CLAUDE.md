@@ -15,7 +15,7 @@ Then call `mcp__Claude_Code_Remote__register_repo_root` with `owner: deventerpri
 |-------|-------------|
 | `create-github-repo` | Creating a new GitHub repo (triggers `create-repo.yml` workflow — CCR can't call account-level GitHub API directly) |
 | `define-acceptance-criteria` | **Before coding any feature/fix** — extract verifiable ACs and get sign-off first |
-| `verify-work` | **After implementing** — map ACs to test cases, run them, report observed evidence only. "Should work" is banned. |
+| `verify-work` | **After implementing** — map ACs to test cases, run them, report observed evidence only. "Should work" is banned. Use alongside the UAT pipeline below (not instead of it). |
 | `setup-environment` | Install CLI tools (az, gh, vercel, supabase, etc.) in a CCR session |
 | `setup-mcp` | Add MCP servers to a project |
 
@@ -80,15 +80,36 @@ When adding a new secret: add it to GitHub secrets **and** to the `--settings` l
 
 ### How Claude runs end-to-end UAT from a CCR session
 
-`POST /design-library/extract` streams NDJSON, which the CCR outbound proxy cannot handle (returns 502). The workaround is the **async extract path** built for exactly this purpose:
+Two complementary paths — use both:
+
+#### Path A: `uat-extract.yml` GitHub Actions workflow (preferred for full pipeline UAT)
+Trigger `.github/workflows/uat-extract.yml` via `workflow_dispatch`. GitHub Actions runners are not behind the CCR proxy so they can call `/extract?sync=1` directly. The workflow runs the full pipeline end-to-end:
+1. Generates and uploads a test screenshot to blob storage
+2. Calls `/extract?sync=1` — returns complete design system as a single JSON (no streaming issues)
+3. POSTs to `/save` with `id` + `visibility: 'private'`
+4. Verifies the row exists in `DesignLibraries` via `az storage entity query`
+5. Verifies `/saved` endpoint returns it
+
+After triggering, poll `actions/runs/{run_id}` until `conclusion: success`. Check job logs to confirm each step passed.
+
+#### Path B: Direct API calls from CCR (for spot-checking individual endpoints)
+`POST /design-library/extract` streams NDJSON, which the CCR outbound proxy cannot handle (returns 502). Use the async path instead:
 
 1. **Upload**: `POST /design-library/upload` (multipart/form-data) — works fine through CCR proxy, returns `{ url }`.
-2. **Extract async**: `POST /design-library/extract-async` with `{ imageUrls: [url] }` — returns `{ jobId }` immediately (no streaming). The Azure Queue worker runs the actual Anthropic extraction independently.
-3. **Poll**: `GET /design-library/extract-job/{jobId}` — poll until `status === 'done'`, then read `result` from the response.
+2. **Extract async**: `POST /design-library/extract-async` with `{ imageUrls: [url] }` — returns `{ jobId }` immediately. The Azure Queue worker runs extraction independently (requires `AzureWebJobsStorage` app setting — confirmed set).
+3. **Poll**: `GET /design-library/extract-job/{jobId}` — poll until `status === 'done'`, then read `result`.
 4. **Save**: `POST /design-library/save` with the result — writes to `DesignLibraries` table.
-5. **Verify**: Trigger `debug-table.yml` workflow and confirm the row appears.
+5. **Verify**: Trigger `debug-table.yml` and confirm the row appears.
 
-**Never call `/design-library/extract` (the streaming endpoint) directly from curl/Python in a CCR session — it always 502s.** Use `/extract-async` + poll instead.
+**Never call `/design-library/extract` directly from CCR curl/Python — it always 502s.**
+
+#### Microtesting before full UAT
+Always microtest individual endpoints first:
+- `/health` — confirms API up + keys set
+- `/upload` — multipart upload returns `{ url }`
+- `/extract?sync=1` — single JSON response, check `{ type: 'result', data: { meta, components, ... } }`
+- `/save` — POST result + `{ id, visibility }`, confirm 200 + full object back
+- `/saved` — GET confirms list returns saved item
 
 ### DesignLibraries table — save/list model
 
