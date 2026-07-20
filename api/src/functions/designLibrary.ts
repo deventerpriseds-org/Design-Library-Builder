@@ -651,6 +651,12 @@ async function healthHandler(req: HttpRequest, context: InvocationContext): Prom
 
 // ── JWT helper ────────────────────────────────────────────────────────────────
 function extractUserId(req: HttpRequest): string | null {
+  // UAT bypass — checked first; requires token to match org secret so production is gated
+  const uatToken = req.headers.get('X-UAT-Token')
+  const uatUser = req.headers.get('X-UAT-User')
+  if (uatToken && uatUser && process.env.UAT_BYPASS_TOKEN && uatToken === process.env.UAT_BYPASS_TOKEN) {
+    return uatUser
+  }
   const auth = req.headers.get('Authorization') || ''
   if (!auth.startsWith('Bearer ')) return null
   const token = auth.slice(7)
