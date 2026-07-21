@@ -120,7 +120,6 @@ jobs:
           SAVE_RESP=$(curl -s -X POST \
             "https://design-library-builder-api.azurewebsites.net/api/design-library/save" \
             -H "Content-Type: application/json" \
-            -H "X-UAT-User: ${{ secrets.UAT_USER_EMAIL }}" \
             -H "X-UAT-Token: ${{ secrets.UAT_BYPASS_TOKEN }}" \
             -d "$PAYLOAD")
           echo "Save response: $SAVE_RESP"
@@ -147,7 +146,6 @@ jobs:
       - name: Verify /saved endpoint returns the library
         run: |
           SAVED_RESP=$(curl -s "https://design-library-builder-api.azurewebsites.net/api/design-library/saved" \
-            -H "X-UAT-User: ${{ secrets.UAT_USER_EMAIL }}" \
             -H "X-UAT-Token: ${{ secrets.UAT_BYPASS_TOKEN }}")
           COUNT=$(echo "$SAVED_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d) if isinstance(d,list) else 0)" 2>/dev/null || echo "0")
           echo "/saved returned $COUNT libraries"

@@ -87,8 +87,7 @@ jobs:
               "FIGMA_ACCESS_TOKEN=${{ secrets.FIGMA_ACCESS_TOKEN }}" \
               "SUPERNOVA_TOKEN=${{ secrets.SUPERNOVA_AUTH_TOKEN }}" \
               "NODE_ENV=production" \
-              "UAT_BYPASS_TOKEN=${{ secrets.UAT_BYPASS_TOKEN }}" \
-              "UAT_USER_EMAIL=${{ secrets.UAT_USER_EMAIL }}"
+              "UAT_BYPASS_TOKEN=${{ secrets.UAT_BYPASS_TOKEN }}"
 
       - name: Configure platform CORS
         run: |

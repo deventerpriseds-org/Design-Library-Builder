@@ -649,13 +649,14 @@ async function healthHandler(req: HttpRequest, context: InvocationContext): Prom
   }
 }
 
+const UAT_USER = 'dev@enterpriseds.io'
+
 // ── JWT helper ────────────────────────────────────────────────────────────────
 function extractUserId(req: HttpRequest): string | null {
-  // UAT bypass — checked first; requires token to match org secret so production is gated
+  // UAT bypass — token-gated; resolves to UAT_USER (change that constant to switch accounts)
   const uatToken = req.headers.get('X-UAT-Token')
-  const uatUser = req.headers.get('X-UAT-User')
-  if (uatToken && uatUser && process.env.UAT_BYPASS_TOKEN && uatToken === process.env.UAT_BYPASS_TOKEN) {
-    return uatUser
+  if (uatToken && process.env.UAT_BYPASS_TOKEN && uatToken === process.env.UAT_BYPASS_TOKEN) {
+    return UAT_USER
   }
   const auth = req.headers.get('Authorization') || ''
   if (!auth.startsWith('Bearer ')) return null
