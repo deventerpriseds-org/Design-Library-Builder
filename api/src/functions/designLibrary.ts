@@ -184,10 +184,17 @@ function buildBaseline(name: string, primaryColor: string, fontFamily: string) {
 function mergeWithBaseline(baseline: any, diff: any): any {
   if (!diff || typeof diff !== 'object') return baseline
   const result = JSON.parse(JSON.stringify(baseline))
-  // Merge meta fields
+
+  // Merge meta fields (all observed values win)
   if (diff.meta) Object.assign(result.meta, diff.meta)
+
   // Override brand primitives with observed colors
-  if (diff.primitives?.length) result.variables.collections.Primitives = diff.primitives
+  if (diff.primitives?.length) {
+    result.variables.collections.Primitives = diff.primitives.map((p: any) => ({
+      ...p, type: 'color', resolvedType: 'COLOR', scopes: ['FRAME_FILL'], hiddenFromPublishing: true,
+    }))
+  }
+
   // Merge semantic color overrides
   if (diff.semanticColors) {
     for (const [key, vals] of Object.entries(diff.semanticColors as Record<string, any>)) {
@@ -196,7 +203,78 @@ function mergeWithBaseline(baseline: any, diff: any): any {
       else result.variables.collections.Color.push({ name: key, ...vals, resolvedType: 'COLOR', scopes: ['FRAME_FILL'] })
     }
   }
-  // Add/replace components by name
+
+  // Apply typography overrides to text styles
+  if (diff.typography) {
+    const t = diff.typography
+    const font = diff.meta?.fontFamily || baseline.meta.fontFamily
+    const headFont = diff.meta?.headingFontFamily || font
+    if (t.heading) {
+      result.styles.text = result.styles.text.map((s: any) =>
+        ['Display', 'H1', 'H2', 'H3', 'H4'].includes(s.name)
+          ? { ...s, fontFamily: headFont, fontWeight: t.heading.fontWeight || s.fontWeight, letterSpacing: t.heading.letterSpacing !== undefined ? { value: t.heading.letterSpacing, unit: 'PIXELS' } : s.letterSpacing }
+          : s
+      )
+    }
+    if (t.body) {
+      result.styles.text = result.styles.text.map((s: any) =>
+        ['Body LG', 'Body', 'Body SM'].includes(s.name)
+          ? { ...s, fontFamily: font, fontSize: t.body.fontSize || s.fontSize, lineHeight: t.body.lineHeight ? { value: t.body.lineHeight, unit: 'PIXELS' } : s.lineHeight }
+          : s
+      )
+    }
+    if (t.label) {
+      result.styles.text = result.styles.text.map((s: any) =>
+        s.name === 'Label'
+          ? { ...s, fontFamily: font, fontSize: t.label.fontSize || s.fontSize, fontWeight: t.label.fontWeight || s.fontWeight }
+          : s
+      )
+    }
+    if (t.mono) {
+      result.styles.text = result.styles.text.map((s: any) =>
+        s.name === 'Code' ? { ...s, fontFamily: t.mono.fontFamily || s.fontFamily } : s
+      )
+    }
+    result.variables.collections.Typography = result.variables.collections.Typography.map((v: any) => {
+      if (v.name === 'family/sans') return { ...v, value: font }
+      if (v.name === 'family/mono') return { ...v, value: t.mono?.fontFamily || v.value }
+      return v
+    })
+  }
+
+  // Apply observed shadow language to effect styles
+  if (diff.meta?.shadowDepth) {
+    const depth = diff.meta.shadowDepth
+    const alphaMap: Record<string, number> = { none: 0, subtle: 0.04, medium: 0.10, heavy: 0.18 }
+    const alpha = alphaMap[depth] ?? 0.08
+    if (depth === 'none') {
+      result.styles.effects = result.styles.effects.map((e: any) => ({ ...e, radius: 0, spread: 0, color: 'rgba(0,0,0,0)' }))
+    } else {
+      result.styles.effects = result.styles.effects.map((e: any) => ({
+        ...e,
+        color: `rgba(0,0,0,${alpha})`,
+      }))
+    }
+  }
+
+  // Merge observed shadow definitions
+  if (diff.shadows?.length) {
+    for (const sh of diff.shadows) {
+      const name = `Shadow/${sh.name?.charAt(0).toUpperCase() + sh.name?.slice(1) || 'Custom'}`
+      result.styles.effects.push({
+        name,
+        type: 'DROP_SHADOW',
+        radius: sh.blur || 8,
+        spread: sh.spread || 0,
+        color: `rgba(0,0,0,${sh.alpha || 0.08})`,
+        offsetX: sh.x || 0,
+        offsetY: sh.y || 2,
+        css: `${sh.x || 0}px ${sh.y || 2}px ${sh.blur || 8}px rgba(0,0,0,${sh.alpha || 0.08})`,
+      })
+    }
+  }
+
+  // Add/replace components — preserve visual style fingerprints
   if (diff.components?.length) {
     for (const dc of diff.components) {
       const idx = result.components.findIndex((c: any) => c.name === dc.name)
@@ -204,67 +282,106 @@ function mergeWithBaseline(baseline: any, diff: any): any {
       else result.components.push(dc)
     }
   }
+
   // Merge patterns
   if (diff.patterns?.length) result.patterns = diff.patterns
+
   // Update inference map
   if (diff.inferenceMap) Object.assign(result.meta.inferenceMap, diff.inferenceMap)
   return result
 }
 
-const SYSTEM_PROMPT = `You are a design systems expert. A baseline design system is already built with standard spacing, typography, motion, and components. Your job is ONLY to observe the provided screenshots and return the brand-specific DIFF — what's unique to this particular app.
+const SYSTEM_PROMPT = `You are a design systems expert analyzing screenshots to extract a COMPLETE visual fingerprint of this specific app. A generic baseline exists — your job is to override it so thoroughly with observed values that the output looks like it was designed from scratch for THIS app. A viewer should never be able to tell a baseline existed.
 
-Return a compact JSON diff object. Only include what you actually observe. Do not repeat the baseline defaults.
+Return a JSON diff object. Be exhaustive — every value you can observe or accurately infer should be included. Do not leave baseline defaults standing when you can observe the real values.
 
 DIFF SCHEMA:
 {
   "meta": {
-    "primaryColor": "#hex (required — the dominant brand/action color)",
-    "secondaryColor": "#hex (optional)",
-    "bgColor": "#hex (page background, optional)",
-    "surfaceColor": "#hex (card/panel background, optional)",
-    "textColor": "#hex (primary text, optional)",
-    "fontFamily": "string (font name if visible, optional)",
-    "buttonRadius": number (px, optional),
-    "cardRadius": number (px, optional)
+    "primaryColor": "#hex (required — dominant brand/action color)",
+    "secondaryColor": "#hex",
+    "accentColor": "#hex (tertiary accent if present)",
+    "bgColor": "#hex (page/app background)",
+    "surfaceColor": "#hex (card/panel background)",
+    "sidebarColor": "#hex (sidebar background if different from surface)",
+    "textColor": "#hex (primary body text)",
+    "textSecondaryColor": "#hex (secondary/muted text)",
+    "borderColor": "#hex (default border/divider)",
+    "fontFamily": "string (primary font name visible, e.g. Inter, Roboto, DM Sans)",
+    "headingFontFamily": "string (heading font if different from body)",
+    "buttonRadius": number (px — observe button corner rounding),
+    "cardRadius": number (px — observe card corner rounding),
+    "inputRadius": number (px — observe input field corner rounding),
+    "badgeRadius": number (px — observe badge/chip corner rounding, often 9999 for pill),
+    "shadowDepth": "none|subtle|medium|heavy (overall shadow language of the app)",
+    "density": "compact|default|comfortable (spacing density — how tight are rows/padding)",
+    "iconStyle": "outline|filled|duotone|custom (icon visual style observed)",
+    "buttonStyle": "filled|outline|ghost|mixed (dominant button treatment observed)",
+    "cardStyle": "bordered|elevated|flat|mixed"
   },
   "primitives": [
-    { "name": "brand-50..900", "value": "#hex", "type": "color", "resolvedType": "COLOR", "scopes": ["FRAME_FILL"], "hiddenFromPublishing": true }
+    { "name": "brand-50", "value": "#hex" },
+    { "name": "brand-100", "value": "#hex" },
+    ...through brand-900
   ],
   "semanticColors": {
-    "token/name": { "lightValue": "#hex", "darkValue": "#hex", "description": "string" }
+    "action/primary": { "lightValue": "#hex", "darkValue": "#hex" },
+    "surface/page": { "lightValue": "#hex" },
+    "surface/sidebar": { "lightValue": "#hex" }
   },
+  "typography": {
+    "heading": { "fontFamily": "string", "fontWeight": 700, "letterSpacing": -0.3 },
+    "body": { "fontFamily": "string", "fontSize": 14, "lineHeight": 22 },
+    "label": { "fontFamily": "string", "fontSize": 12, "fontWeight": 600, "letterSpacing": 0.1 },
+    "mono": { "fontFamily": "string" }
+  },
+  "shadows": [
+    { "name": "card", "blur": 8, "spread": 0, "x": 0, "y": 2, "color": "#000", "alpha": 0.08 }
+  ],
   "components": [
     {
-      "name": "string (name as it appears in this app, e.g. PatientCard, MedTable)",
+      "name": "string (app-specific name as seen, e.g. PatientCard, MedTable, AppointmentBadge)",
       "tier": "atom|molecule|organism|pattern",
-      "category": "string",
-      "variants": ["string"],
-      "states": ["string"],
-      "variantProperties": {},
-      "componentProperties": {},
-      "tokenBindings": [],
-      "styleBindings": [],
-      "variableBindings": {}
+      "category": "string (domain category, e.g. Medical, Navigation, Data)",
+      "description": "string (one sentence: what this component shows/does in this app)",
+      "variants": ["string (observed states/types, e.g. Active, Inactive, Critical, Normal)"],
+      "states": ["Default", "Hover", "Disabled", ...],
+      "visualStyle": {
+        "bg": "#hex (component background fill color observed)",
+        "fg": "#hex (component foreground/text color observed)",
+        "border": "#hex (component border color, null if none)",
+        "radius": number (component-specific corner radius in px),
+        "shadow": "none|sm|md|lg",
+        "padding": "string (e.g. '8px 16px' — approximate padding observed)",
+        "iconPresent": true/false,
+        "densityOverride": "compact|default|comfortable"
+      },
+      "dataFields": ["string (data labels/fields visible, e.g. 'Patient Name', 'Last Visit', 'Status')"],
+      "variantProperties": { "PropertyName": ["Value1", "Value2"] },
+      "componentProperties": { "propName": { "type": "TEXT|BOOLEAN|INSTANCE_SWAP", "default": "value" } }
     }
   ],
   "patterns": [
-    { "name": "string", "description": "string", "components": ["string"], "layout": "string" }
-  ],
-  "inferenceMap": {
-    "primitives": "found|inferred",
-    "colorTokens": "found|inferred",
-    "components": "found|inferred",
-    "patterns": "found|inferred"
-  }
+    {
+      "name": "string",
+      "description": "string (layout + content description)",
+      "components": ["ComponentName"],
+      "layout": "string (exact layout — sidebar width, grid columns, sticky elements)"
+    }
+  ]
 }
 
-RULES:
-- primitives: list only the brand color ramp (brand-50 through brand-900) derived from the observed primary color. Skip if you cannot determine the brand color.
-- components: list app-specific component names you observe. Include domain-specific ones (e.g. PatientCard, OrderTable). Skip generic ones already in the baseline (Button, Input, Modal, etc.) unless they have app-specific variants.
-- patterns: list the page layouts/flows you can see in the screenshots.
-- meta.primaryColor is REQUIRED. Everything else is optional — only include what you observe.
+OBSERVATION RULES:
+1. primaryColor is REQUIRED — it is the most visible action/brand color (buttons, links, active states).
+2. Extract the complete brand color ramp (brand-50 through brand-900) — derive intermediate shades from the primary.
+3. For every component you can see, describe its ACTUAL visual style (bg color, border, radius, shadow) not generic defaults.
+4. Domain-specific components are the most valuable — PatientCard, MedTable, VitalSign, AppointmentSlot are worth more than Button.
+5. Include generic components (Button, Input, Checkbox) ONLY when you can observe app-specific visual treatments (e.g. a teal filled button with 4px radius is specific).
+6. dataFields: list the actual labels/data you see in cards and tables — this drives faithful Figma component anatomy.
+7. If you cannot observe a value, omit it. Never guess. Observed values win over inferred.
+8. shadowDepth: none = flat design, subtle = barely visible shadows, medium = clear card elevation, heavy = dramatic shadows.
 
-Respond ONLY with the JSON object. No markdown, no explanation, no code fences.`
+Respond ONLY with the JSON object. No markdown, no code fences.`
 
 // ── Extract endpoint ─────────────────────────────────────────────────────────
 async function extractHandler(req: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
@@ -1041,12 +1158,25 @@ async function storiesHandler(req: HttpRequest, ctx: InvocationContext): Promise
       <div style={{ fontSize: 12, color: '#64748B' }}>Hover target</div>
     </div>
   )`
-      case 'card': return `(args) => (
-    <div style={{ width: 260, border: '1px solid #E5E7EB', borderRadius: 12, padding: '14px 16px', background: '#fff', opacity: args.disabled ? 0.6 : 1 }}>
-      <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 6, color: '#111827' }}>{args.label}</div>
-      <div style={{ fontSize: 13, color: '#64748B' }}>Card content for {args.label}</div>
+      case 'card': {
+        const vs = c.visualStyle || {}
+        const cardBg = vs.bg || '#fff'
+        const cardBorder = vs.border !== null && vs.border !== undefined ? vs.border : '#E5E7EB'
+        const cardRadius2 = vs.radius !== undefined ? vs.radius : (radius + 4)
+        const cardShadow = vs.shadow && vs.shadow !== 'none' ? '0 2px 8px rgba(0,0,0,0.10)' : 'none'
+        const fields = (c.dataFields || []).slice(0, 4)
+        const fieldsJSX = fields.length
+          ? fields.map((f: string) => `
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#64748B', padding: '4px 0', borderTop: '1px solid #F1F5F9' }}>
+        <span style={{ fontWeight: 500 }}>${f}</span><span>—</span>
+      </div>`).join('')
+          : `\n      <div style={{ fontSize: 13, color: '#64748B' }}>Card content for {args.label}</div>`
+        return `(args) => (
+    <div style={{ width: 280, border: '1px solid ${cardBorder}', borderRadius: ${cardRadius2}, padding: '14px 16px', background: '${cardBg}', opacity: args.disabled ? 0.6 : 1, boxShadow: '${cardShadow}' }}>
+      <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 8, color: '#111827' }}>{args.label}</div>${fieldsJSX}
     </div>
   )`
+      }
       case 'tabs': return `(args) => (
     <div style={{ borderBottom: '1px solid #E5E7EB', display: 'flex', gap: 0 }}>
       {['Overview', 'Details', 'History'].map((t, i) => (
@@ -1069,11 +1199,18 @@ async function storiesHandler(req: HttpRequest, ctx: InvocationContext): Promise
       ))}
     </div>
   )`
-      default: return `(args) => (
-    <button disabled={args.disabled} style={{ display: 'inline-flex', alignItems: 'center', padding: '0 16px', height: 38, borderRadius: ${radius}, background: args.variant === 'secondary' ? 'transparent' : '${primary}', color: args.variant === 'secondary' ? '${primary}' : '#fff', border: args.variant === 'secondary' ? '1px solid ${primary}' : 'none', fontWeight: 500, fontSize: 14, cursor: args.disabled ? 'not-allowed' : 'pointer', opacity: args.disabled ? 0.4 : 1 }}>
+      default: {
+        const vs = c.visualStyle || {}
+        const compBg = vs.bg || primary
+        const compFg2 = vs.fg || '#fff'
+        const compR = vs.radius !== undefined ? vs.radius : radius
+        const compBorderDefault = vs.border ? `'1px solid ${vs.border}'` : "'none'"
+        return `(args) => (
+    <button disabled={args.disabled} style={{ display: 'inline-flex', alignItems: 'center', padding: '0 16px', height: 38, borderRadius: ${compR}, background: args.variant === 'secondary' ? 'transparent' : '${compBg}', color: args.variant === 'secondary' ? '${compBg}' : '${compFg2}', border: args.variant === 'secondary' ? '1px solid ${compBg}' : ${compBorderDefault}, fontWeight: 500, fontSize: 14, cursor: args.disabled ? 'not-allowed' : 'pointer', opacity: args.disabled ? 0.4 : 1 }}>
       {args.label}
     </button>
   )`
+      }
     }
   }
 

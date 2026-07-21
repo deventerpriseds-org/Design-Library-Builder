@@ -513,8 +513,16 @@ function ComponentPreview({ component, variant, S }) {
   const isSecondary = (variant || '').toLowerCase().includes('secondary') || (variant || '').toLowerCase().includes('outline') || (variant || '').toLowerCase().includes('ghost')
   const label = variant && variant.toLowerCase() !== 'default' ? variant : component.name
 
+  // Per-component visual overrides from extraction fingerprint
+  const vs = component.visualStyle || {}
+  const compBrand = vs.bg || S.brand
+  const compFg = vs.fg || '#fff'
+  const compBorder = vs.border || S.border
+  const compRadius = vs.radius !== undefined ? vs.radius : S.radius
+  const compShadow = vs.shadow && vs.shadow !== 'none' ? '0 2px 8px rgba(0,0,0,0.10)' : 'none'
+
   const baseBtn = {
-    display: 'inline-flex', alignItems: 'center', padding: '0 16px', height: 36, borderRadius: S.radius,
+    display: 'inline-flex', alignItems: 'center', padding: '0 16px', height: 36, borderRadius: compRadius,
     fontWeight: 500, fontSize: 13, cursor: isDisabled ? 'not-allowed' : 'pointer', fontFamily: S.bodyFont,
     opacity: isDisabled ? 0.45 : 1, transition: 'all 0.15s',
   }
@@ -568,10 +576,11 @@ function ComponentPreview({ component, variant, S }) {
   }
 
   if (type === 'badge') {
-    const bg = isDanger ? '#FEE2E2' : isSecondary ? S.bg : S.brandSoft
-    const color = isDanger ? '#DC2626' : isSecondary ? S.text2 : S.brand
+    const badgeRadius = vs.radius !== undefined ? vs.radius : 9999
+    const bg = isDanger ? '#FEE2E2' : isSecondary ? S.bg : (vs.bg || S.brandSoft)
+    const color = isDanger ? '#DC2626' : isSecondary ? S.text2 : (vs.fg || S.brand)
     return (
-      <span style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 10px', borderRadius: 9999, fontSize: 12, fontWeight: 600, background: bg, color, fontFamily: S.bodyFont, opacity: isDisabled ? 0.45 : 1 }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 10px', borderRadius: badgeRadius, fontSize: 12, fontWeight: 600, background: bg, color, fontFamily: S.bodyFont, opacity: isDisabled ? 0.45 : 1 }}>
         {label}
       </span>
     )
@@ -683,10 +692,20 @@ function ComponentPreview({ component, variant, S }) {
   }
 
   if (type === 'card') {
+    const cardBg = vs.bg || '#fff'
+    const cardBorder = vs.border !== null ? (vs.border || S.border) : 'transparent'
+    const cardShadow = compShadow
+    const fields = component.dataFields || []
     return (
-      <div style={{ width: '100%', maxWidth: 260, border: `1px solid ${S.border}`, borderRadius: S.cardRadius || S.radius, padding: '14px 16px', background: '#fff', opacity: isDisabled ? 0.6 : 1 }}>
-        <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4, color: S.text, fontFamily: S.bodyFont }}>{component.name}</div>
-        <div style={{ fontSize: 12, color: S.text2, fontFamily: S.bodyFont }}>{component.description || label}</div>
+      <div style={{ width: '100%', maxWidth: 280, border: `1px solid ${cardBorder}`, borderRadius: compRadius || (S.cardRadius || S.radius), padding: '14px 16px', background: cardBg, opacity: isDisabled ? 0.6 : 1, boxShadow: cardShadow }}>
+        <div style={{ fontWeight: 600, fontSize: 14, marginBottom: fields.length ? 8 : 4, color: vs.fg || S.text, fontFamily: S.bodyFont }}>{component.name}</div>
+        {fields.slice(0, 3).map((f, i) => (
+          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: S.text2, fontFamily: S.bodyFont, padding: '2px 0', borderTop: i === 0 ? `1px solid ${S.border}` : 'none' }}>
+            <span style={{ fontWeight: 500 }}>{f}</span>
+            <span style={{ color: S.brand }}>—</span>
+          </div>
+        ))}
+        {!fields.length && <div style={{ fontSize: 12, color: S.text2, fontFamily: S.bodyFont }}>{component.description || label}</div>}
       </div>
     )
   }
@@ -729,12 +748,12 @@ function ComponentPreview({ component, variant, S }) {
     )
   }
 
-  // Default: button
-  const bg = isDanger ? '#DC2626' : isSecondary ? 'transparent' : S.brand
-  const color = isSecondary ? (isDanger ? '#DC2626' : S.brand) : '#fff'
-  const border2 = isSecondary ? `1px solid ${isDanger ? '#DC2626' : S.brand}` : 'none'
+  // Default: button — uses extracted visualStyle when available
+  const bg = isDanger ? '#DC2626' : isSecondary ? 'transparent' : compBrand
+  const color = isSecondary ? (isDanger ? '#DC2626' : compBrand) : compFg
+  const border2 = isSecondary ? `1px solid ${isDanger ? '#DC2626' : compBrand}` : (vs.border ? `1px solid ${vs.border}` : 'none')
   return (
-    <button disabled={isDisabled} style={{ ...baseBtn, background: bg, color, border: border2 }}>
+    <button disabled={isDisabled} style={{ ...baseBtn, background: bg, color, border: border2, boxShadow: compShadow }}>
       {label}
     </button>
   )
