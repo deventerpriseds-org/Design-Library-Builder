@@ -1,0 +1,10 @@
+{
+  "name": "Design Library Builder",
+  "id": "design-library-builder-import",
+  "api": "1.0.0",
+  "main": "plugin.js",
+  "ui": "ui.html",
+  "editorType": ["figma"],
+  "documentAccess": "dynamic-page",
+  "permissions": ["currentuser"]
+}

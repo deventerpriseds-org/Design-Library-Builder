@@ -926,14 +926,180 @@ async function storiesHandler(req: HttpRequest, ctx: InvocationContext): Promise
   // Library name becomes the top-level Storybook sidebar group and Supernova namespace
   const libraryName = (result.meta?.name || 'Design System').replace(/[^a-zA-Z0-9 ]/g, '').trim()
 
+  function detectType(c: any): string {
+    const n = (c.name || '').toLowerCase()
+    const cat = (c.category || '').toLowerCase()
+    if (/checkbox|check/.test(n) || cat === 'checkbox') return 'checkbox'
+    if (/toggle|switch/.test(n)) return 'toggle'
+    if (/radio/.test(n)) return 'radio'
+    if (/avatar|profile/.test(n)) return 'avatar'
+    if (/badge|tag|chip|pill/.test(n)) return 'badge'
+    if (/input|text.*field|search/.test(n) || cat === 'input') return 'input'
+    if (/select|dropdown/.test(n)) return 'select'
+    if (/textarea/.test(n)) return 'textarea'
+    if (/progress|spinner|loading/.test(n)) return 'progress'
+    if (/toast|alert|notification/.test(n)) return 'alert'
+    if (/tooltip/.test(n)) return 'tooltip'
+    if (/modal|dialog/.test(n)) return 'modal'
+    if (/accordion|collapse/.test(n)) return 'accordion'
+    if (/tab/.test(n)) return 'tabs'
+    if (/nav|menu|sidebar/.test(n)) return 'nav'
+    if (/divider|separator/.test(n)) return 'divider'
+    if (/icon/.test(n)) return 'icon'
+    if (/card/.test(n) || c.tier === 'molecule' || c.tier === 'organism') return 'card'
+    if (/table|list/.test(n)) return 'table'
+    return 'button'
+  }
+
+  function buildRender(c: any, type: string): string {
+    const isDisabled = "args.disabled"
+    switch (type) {
+      case 'checkbox': return `(args) => (
+    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: ${isDisabled} ? 'not-allowed' : 'pointer', opacity: ${isDisabled} ? 0.45 : 1 }}>
+      <div style={{ width: 18, height: 18, borderRadius: 4, border: \`2px solid \${args.checked ? '${primary}' : '#E5E7EB'}\`, background: args.checked ? '${primary}' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {args.checked && <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+      </div>
+      {args.label}
+    </label>
+  )`
+      case 'toggle': return `(args) => (
+    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: ${isDisabled} ? 'not-allowed' : 'pointer', opacity: ${isDisabled} ? 0.45 : 1 }}>
+      <div style={{ width: 40, height: 22, borderRadius: 11, background: args.checked ? '${primary}' : '#E5E7EB', position: 'relative', transition: 'background 0.2s' }}>
+        <div style={{ width: 16, height: 16, borderRadius: 8, background: '#fff', position: 'absolute', top: 3, left: args.checked ? 21 : 3, transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,.2)' }} />
+      </div>
+      {args.label}
+    </label>
+  )`
+      case 'radio': return `(args) => (
+    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: ${isDisabled} ? 'not-allowed' : 'pointer', opacity: ${isDisabled} ? 0.45 : 1 }}>
+      <div style={{ width: 18, height: 18, borderRadius: '50%', border: \`2px solid \${args.checked ? '${primary}' : '#E5E7EB'}\`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {args.checked && <div style={{ width: 8, height: 8, borderRadius: '50%', background: '${primary}' }} />}
+      </div>
+      {args.label}
+    </label>
+  )`
+      case 'avatar': return `(args) => {
+    const initials = args.label.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
+    const sizes = { small: 28, medium: 40, large: 56 }
+    const sz = sizes[args.size] || 40
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+        <div style={{ width: sz, height: sz, borderRadius: '50%', background: '${primary}', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: sz * 0.35, fontWeight: 600 }}>{initials}</div>
+        <span style={{ fontSize: 11, color: '#64748B' }}>{args.label}</span>
+      </div>
+    )
+  }`
+      case 'badge': return `(args) => (
+    <span style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 10px', borderRadius: 9999, fontSize: 12, fontWeight: 600, background: args.variant === 'danger' ? '#FEE2E2' : '${primary}20', color: args.variant === 'danger' ? '#DC2626' : '${primary}' }}>
+      {args.label}
+    </span>
+  )`
+      case 'input': return `(args) => (
+    <div style={{ width: 260 }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: '#64748B', marginBottom: 4 }}>{args.label}</div>
+      <div style={{ display: 'flex', alignItems: 'center', height: 38, border: \`1px solid \${args.disabled ? '#E5E7EB' : '${primary}'}\`, borderRadius: ${radius}, padding: '0 12px', background: args.disabled ? '#F9FAFB' : '#fff', opacity: args.disabled ? 0.6 : 1 }}>
+        <span style={{ fontSize: 14, color: '#9CA3AF' }}>Enter {args.label.toLowerCase()}…</span>
+      </div>
+    </div>
+  )`
+      case 'select': return `(args) => (
+    <div style={{ width: 220 }}>
+      <div style={{ display: 'flex', alignItems: 'center', height: 38, border: '1px solid #E5E7EB', borderRadius: ${radius}, padding: '0 12px', background: '#fff', justifyContent: 'space-between', opacity: args.disabled ? 0.45 : 1 }}>
+        <span style={{ fontSize: 14, color: '#9CA3AF' }}>{args.label}</span>
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 5L7 9L11 5" stroke="#9CA3AF" strokeWidth="1.5" strokeLinecap="round"/></svg>
+      </div>
+    </div>
+  )`
+      case 'progress': return `(args) => (
+    <div style={{ width: 240 }}>
+      <div style={{ height: 8, borderRadius: 4, background: '#E5E7EB', overflow: 'hidden' }}>
+        <div style={{ width: \`\${args.value || 65}%\`, height: '100%', borderRadius: 4, background: '${primary}', transition: 'width 0.4s' }} />
+      </div>
+      <div style={{ fontSize: 11, color: '#64748B', marginTop: 4 }}>{args.value || 65}% · {args.label}</div>
+    </div>
+  )`
+      case 'alert': return `(args) => (
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px', borderRadius: ${radius}, background: args.variant === 'danger' ? '#FEF2F2' : '#EFF6FF', border: \`1px solid \${args.variant === 'danger' ? '#FECACA' : '#BFDBFE'}\`, maxWidth: 300 }}>
+      <span style={{ color: args.variant === 'danger' ? '#B91C1C' : '#1D4ED8', fontSize: 14 }}>{args.variant === 'danger' ? '⚠' : 'ℹ'}</span>
+      <div style={{ fontSize: 13, color: args.variant === 'danger' ? '#B91C1C' : '#1D4ED8', fontWeight: 500 }}>{args.label}</div>
+    </div>
+  )`
+      case 'modal': return `(args) => (
+    <div style={{ width: 280, border: '1px solid #E5E7EB', borderRadius: 12, padding: 20, background: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,0.12)' }}>
+      <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8, color: '#111827' }}>{args.label}</div>
+      <div style={{ fontSize: 13, color: '#64748B', marginBottom: 16 }}>Dialog content goes here.</div>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <div style={{ padding: '6px 14px', borderRadius: ${radius}, border: '1px solid #E5E7EB', fontSize: 13, color: '#64748B' }}>Cancel</div>
+        <div style={{ padding: '6px 14px', borderRadius: ${radius}, background: '${primary}', color: '#fff', fontSize: 13 }}>Confirm</div>
+      </div>
+    </div>
+  )`
+      case 'tooltip': return `(args) => (
+    <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+      <div style={{ background: '#1F2937', color: '#fff', fontSize: 12, padding: '5px 10px', borderRadius: 6 }}>{args.label}</div>
+      <div style={{ width: 0, height: 0, borderLeft: '5px solid transparent', borderRight: '5px solid transparent', borderTop: '5px solid #1F2937' }} />
+      <div style={{ fontSize: 12, color: '#64748B' }}>Hover target</div>
+    </div>
+  )`
+      case 'card': return `(args) => (
+    <div style={{ width: 260, border: '1px solid #E5E7EB', borderRadius: 12, padding: '14px 16px', background: '#fff', opacity: args.disabled ? 0.6 : 1 }}>
+      <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 6, color: '#111827' }}>{args.label}</div>
+      <div style={{ fontSize: 13, color: '#64748B' }}>Card content for {args.label}</div>
+    </div>
+  )`
+      case 'tabs': return `(args) => (
+    <div style={{ borderBottom: '1px solid #E5E7EB', display: 'flex', gap: 0 }}>
+      {['Overview', 'Details', 'History'].map((t, i) => (
+        <div key={t} style={{ padding: '8px 16px', fontSize: 13, fontWeight: i === 0 ? 600 : 400, color: i === 0 ? '${primary}' : '#64748B', borderBottom: i === 0 ? '2px solid ${primary}' : '2px solid transparent', cursor: 'pointer' }}>{t}</div>
+      ))}
+    </div>
+  )`
+      case 'accordion': return `(args) => (
+    <div style={{ width: 280, border: '1px solid #E5E7EB', borderRadius: ${radius}, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: '#fff', fontSize: 14, fontWeight: 500 }}>
+        <span>{args.label}</span>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 6L8 10L12 6" stroke="#64748B" strokeWidth="1.5" strokeLinecap="round"/></svg>
+      </div>
+    </div>
+  )`
+      case 'nav': return `() => (
+    <div style={{ display: 'flex', gap: 4 }}>
+      {['Home', 'Library', 'Settings'].map((item, i) => (
+        <div key={item} style={{ padding: '6px 12px', borderRadius: 6, fontSize: 13, fontWeight: i === 0 ? 600 : 400, background: i === 0 ? '${primary}20' : 'none', color: i === 0 ? '${primary}' : '#64748B', cursor: 'pointer' }}>{item}</div>
+      ))}
+    </div>
+  )`
+      default: return `(args) => (
+    <button disabled={args.disabled} style={{ display: 'inline-flex', alignItems: 'center', padding: '0 16px', height: 38, borderRadius: ${radius}, background: args.variant === 'secondary' ? 'transparent' : '${primary}', color: args.variant === 'secondary' ? '${primary}' : '#fff', border: args.variant === 'secondary' ? '1px solid ${primary}' : 'none', fontWeight: 500, fontSize: 14, cursor: args.disabled ? 'not-allowed' : 'pointer', opacity: args.disabled ? 0.4 : 1 }}>
+      {args.label}
+    </button>
+  )`
+    }
+  }
+
   const stories = components.map((c: any) => {
     const tier = c.tier ? c.tier.charAt(0).toUpperCase() + c.tier.slice(1) + 's' : 'Components'
-    // Namespace: LibraryName/Tier/ComponentName — partitions this library in the shared Storybook
     const storyTitle = `${libraryName}/${tier}/${c.name}`
+    const type = detectType(c)
     const variants = (c.variants || []).filter((v: string) => v.toLowerCase() !== 'default')
+
+    const extraArgTypes = type === 'checkbox' || type === 'toggle' || type === 'radio'
+      ? `\n    checked: { control: 'boolean' },`
+      : type === 'avatar' ? `\n    size: { control: { type: 'select' }, options: ['small', 'medium', 'large'] },`
+      : type === 'progress' ? `\n    value: { control: { type: 'range', min: 0, max: 100, step: 5 } },`
+      : type === 'badge' || type === 'alert' ? `\n    variant: { control: { type: 'select' }, options: ['default', 'danger'] },`
+      : type === 'button' ? `\n    variant: { control: { type: 'select' }, options: ['primary', 'secondary'] },` : ''
+
+    const extraDefaultArgs = type === 'checkbox' || type === 'toggle' || type === 'radio'
+      ? `, checked: true`
+      : type === 'avatar' ? `, size: 'medium'`
+      : type === 'progress' ? `, value: 65`
+      : type === 'badge' || type === 'alert' ? `, variant: 'default'`
+      : type === 'button' ? `, variant: 'primary'` : ''
+
     const storyContent = variants.map((v: string) => `
 export const ${v.replace(/[^a-zA-Z0-9]/g, '') || 'Variant'} = {
-  args: { ...Default.args, label: '${v}' },
+  args: { ...Default.args, label: '${v}'${type === 'checkbox' || type === 'toggle' || type === 'radio' ? `, checked: ${!(v.toLowerCase().includes('uncheck') || v.toLowerCase().includes('off'))}` : ''} },
 }`).join('\n')
 
     return {
@@ -945,17 +1111,13 @@ export default {
   tags: ['autodocs', '${libraryName.toLowerCase().replace(/\s+/g, '-')}'],
   argTypes: {
     label: { control: 'text' },
-    disabled: { control: 'boolean' },
+    disabled: { control: 'boolean' },${extraArgTypes}
   },
-  render: (args) => (
-    <div style={{ display: 'inline-flex', alignItems: 'center', padding: '0 16px', height: 38, borderRadius: ${radius}, background: '${primary}', color: '#fff', fontWeight: 500, fontSize: 14, cursor: args.disabled ? 'not-allowed' : 'pointer', opacity: args.disabled ? 0.4 : 1 }}>
-      {args.label}
-    </div>
-  ),
+  render: ${buildRender(c, type)},
 }
 
 export const Default = {
-  args: { label: '${c.name}', disabled: false },
+  args: { label: '${c.name}', disabled: false${extraDefaultArgs} },
 }
 ${storyContent}
 `,
