@@ -649,7 +649,7 @@ async function healthHandler(req: HttpRequest, context: InvocationContext): Prom
   }
 }
 
-const UAT_USER = 'dev@enterpriseds.io'
+const UAT_USER = 'von.ellis@enterpriseds.io'
 
 // ── JWT helper ────────────────────────────────────────────────────────────────
 function extractUserId(req: HttpRequest): string | null {

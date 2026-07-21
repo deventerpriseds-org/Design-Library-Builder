@@ -12,10 +12,13 @@ function authHeaders() {
   return _sessionToken ? { Authorization: `Bearer ${_sessionToken}` } : {}
 }
 
-// POST /design-library/extract  — sends images + prompts to Claude, streams JSON
+// POST /design-library/extract?sync=1  — returns single JSON response, no streaming
+// The streaming endpoint (/extract without ?sync=1) is killed by Azure's gateway before
+// completion and causes "Failed to fetch" in the browser. Always use sync mode.
 export async function extractDesign({ name, primaryColor, images, urls, description }, onChunk) {
   const body = { name, primaryColor, images, urls, description }
-  const res = await fetch(`${API_BASE}/design-library/extract`, {
+  onChunk?.({ type: 'progress', category: 'extracting', message: 'Analysing design…', done: false })
+  const res = await fetch(`${API_BASE}/design-library/extract?sync=1`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(body),
@@ -24,27 +27,10 @@ export async function extractDesign({ name, primaryColor, images, urls, descript
     const err = await res.json().catch(() => ({}))
     throw new Error(err?.error || `Extract failed: ${res.status}`)
   }
-  // Streamed NDJSON — each line is a progress event or the final result
-  const reader = res.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-  let result = null
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop()
-    for (const line of lines) {
-      if (!line.trim()) continue
-      try {
-        const event = JSON.parse(line)
-        if (event.type === 'progress') onChunk?.(event)
-        if (event.type === 'result') result = event.data
-      } catch { /* partial line */ }
-    }
-  }
-  return result
+  const json = await res.json()
+  if (json.type !== 'result' || !json.data) throw new Error('Unexpected response from extract endpoint')
+  onChunk?.({ type: 'progress', category: 'finalizing', message: 'Extraction complete', done: true })
+  return json.data
 }
 
 // GET /design-library/saved  — list user's saved design systems

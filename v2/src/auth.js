@@ -103,7 +103,13 @@ export async function handleGoogleCallback() {
 export async function signOut() {
   saveUser(null)
   setSessionToken(null)
-  try { const app = await getMsal(); const a = app.getAllAccounts?.()[0]; if (a) await app.clearCache?.() } catch {}
+  // Clear MSAL's own token cache — clearCache() is not a real MSAL method so we
+  // manually remove all msal.* keys to prevent silent re-authentication on reload
+  try {
+    Object.keys(localStorage).filter(k => k.startsWith('msal.')).forEach(k => localStorage.removeItem(k))
+  } catch {}
+  // Force full reload so no in-memory React state or cached auth survives
+  window.location.href = window.location.origin
 }
 
 // Must be called on app startup so MSAL can handle popup redirects inside the popup window.
