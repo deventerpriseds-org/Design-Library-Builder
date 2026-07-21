@@ -15,9 +15,16 @@ Then call `mcp__Claude_Code_Remote__register_repo_root` with `owner: deventerpri
 |-------|-------------|
 | `create-github-repo` | Creating a new GitHub repo (triggers `create-repo.yml` workflow — CCR can't call account-level GitHub API directly) |
 | `define-acceptance-criteria` | **Before coding any feature/fix** — extract verifiable ACs and get sign-off first |
-| `verify-work` | **After implementing** — map ACs to test cases, run them, report observed evidence only. "Should work" is banned. Use alongside the UAT pipeline below (not instead of it). |
+| `verify-work` | **After implementing** — two mandatory modes: **Mode A (UI/UAT)** drives the deployed app in Playwright as a real user — required for any UI change; **Mode B (Integration)** uses curl/pipeline tests — backend-only changes only. A passing GitHub Actions workflow does NOT satisfy Mode A. See skill for full rules. |
+| `design-library-uat` | Full pipeline UAT for this app — Path A: trigger `uat-extract.yml` workflow and confirm `conclusion: success` in logs; Path B: microtest individual endpoints from CCR. Always run Path B microtests first. This is integration testing (Mode B), not a substitute for Playwright UI/UAT (Mode A). |
 | `setup-environment` | Install CLI tools (az, gh, vercel, supabase, etc.) in a CCR session |
 | `setup-mcp` | Add MCP servers to a project |
+
+### UAT user
+- Hardcoded in `api/src/functions/designLibrary.ts` as `UAT_USER = 'von.ellis@enterpriseds.io'`
+- Auth bypass: send `X-UAT-Token: $UAT_BYPASS_TOKEN` header — no OAuth flow needed
+- To change: tell Claude Code "change UAT user to X" — it updates the constant and redeploys
+- Project UAT journeys: see `.claude/uat-profile.md`
 
 All org secrets are inherited automatically — no per-repo config needed.
 
