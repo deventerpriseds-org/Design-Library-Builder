@@ -184,10 +184,17 @@ function buildBaseline(name: string, primaryColor: string, fontFamily: string) {
 function mergeWithBaseline(baseline: any, diff: any): any {
   if (!diff || typeof diff !== 'object') return baseline
   const result = JSON.parse(JSON.stringify(baseline))
-  // Merge meta fields
+
+  // Merge meta fields (all observed values win)
   if (diff.meta) Object.assign(result.meta, diff.meta)
+
   // Override brand primitives with observed colors
-  if (diff.primitives?.length) result.variables.collections.Primitives = diff.primitives
+  if (diff.primitives?.length) {
+    result.variables.collections.Primitives = diff.primitives.map((p: any) => ({
+      ...p, type: 'color', resolvedType: 'COLOR', scopes: ['FRAME_FILL'], hiddenFromPublishing: true,
+    }))
+  }
+
   // Merge semantic color overrides
   if (diff.semanticColors) {
     for (const [key, vals] of Object.entries(diff.semanticColors as Record<string, any>)) {
@@ -196,7 +203,78 @@ function mergeWithBaseline(baseline: any, diff: any): any {
       else result.variables.collections.Color.push({ name: key, ...vals, resolvedType: 'COLOR', scopes: ['FRAME_FILL'] })
     }
   }
-  // Add/replace components by name
+
+  // Apply typography overrides to text styles
+  if (diff.typography) {
+    const t = diff.typography
+    const font = diff.meta?.fontFamily || baseline.meta.fontFamily
+    const headFont = diff.meta?.headingFontFamily || font
+    if (t.heading) {
+      result.styles.text = result.styles.text.map((s: any) =>
+        ['Display', 'H1', 'H2', 'H3', 'H4'].includes(s.name)
+          ? { ...s, fontFamily: headFont, fontWeight: t.heading.fontWeight || s.fontWeight, letterSpacing: t.heading.letterSpacing !== undefined ? { value: t.heading.letterSpacing, unit: 'PIXELS' } : s.letterSpacing }
+          : s
+      )
+    }
+    if (t.body) {
+      result.styles.text = result.styles.text.map((s: any) =>
+        ['Body LG', 'Body', 'Body SM'].includes(s.name)
+          ? { ...s, fontFamily: font, fontSize: t.body.fontSize || s.fontSize, lineHeight: t.body.lineHeight ? { value: t.body.lineHeight, unit: 'PIXELS' } : s.lineHeight }
+          : s
+      )
+    }
+    if (t.label) {
+      result.styles.text = result.styles.text.map((s: any) =>
+        s.name === 'Label'
+          ? { ...s, fontFamily: font, fontSize: t.label.fontSize || s.fontSize, fontWeight: t.label.fontWeight || s.fontWeight }
+          : s
+      )
+    }
+    if (t.mono) {
+      result.styles.text = result.styles.text.map((s: any) =>
+        s.name === 'Code' ? { ...s, fontFamily: t.mono.fontFamily || s.fontFamily } : s
+      )
+    }
+    result.variables.collections.Typography = result.variables.collections.Typography.map((v: any) => {
+      if (v.name === 'family/sans') return { ...v, value: font }
+      if (v.name === 'family/mono') return { ...v, value: t.mono?.fontFamily || v.value }
+      return v
+    })
+  }
+
+  // Apply observed shadow language to effect styles
+  if (diff.meta?.shadowDepth) {
+    const depth = diff.meta.shadowDepth
+    const alphaMap: Record<string, number> = { none: 0, subtle: 0.04, medium: 0.10, heavy: 0.18 }
+    const alpha = alphaMap[depth] ?? 0.08
+    if (depth === 'none') {
+      result.styles.effects = result.styles.effects.map((e: any) => ({ ...e, radius: 0, spread: 0, color: 'rgba(0,0,0,0)' }))
+    } else {
+      result.styles.effects = result.styles.effects.map((e: any) => ({
+        ...e,
+        color: `rgba(0,0,0,${alpha})`,
+      }))
+    }
+  }
+
+  // Merge observed shadow definitions
+  if (diff.shadows?.length) {
+    for (const sh of diff.shadows) {
+      const name = `Shadow/${sh.name?.charAt(0).toUpperCase() + sh.name?.slice(1) || 'Custom'}`
+      result.styles.effects.push({
+        name,
+        type: 'DROP_SHADOW',
+        radius: sh.blur || 8,
+        spread: sh.spread || 0,
+        color: `rgba(0,0,0,${sh.alpha || 0.08})`,
+        offsetX: sh.x || 0,
+        offsetY: sh.y || 2,
+        css: `${sh.x || 0}px ${sh.y || 2}px ${sh.blur || 8}px rgba(0,0,0,${sh.alpha || 0.08})`,
+      })
+    }
+  }
+
+  // Add/replace components — preserve visual style fingerprints
   if (diff.components?.length) {
     for (const dc of diff.components) {
       const idx = result.components.findIndex((c: any) => c.name === dc.name)
@@ -204,67 +282,106 @@ function mergeWithBaseline(baseline: any, diff: any): any {
       else result.components.push(dc)
     }
   }
+
   // Merge patterns
   if (diff.patterns?.length) result.patterns = diff.patterns
+
   // Update inference map
   if (diff.inferenceMap) Object.assign(result.meta.inferenceMap, diff.inferenceMap)
   return result
 }
 
-const SYSTEM_PROMPT = `You are a design systems expert. A baseline design system is already built with standard spacing, typography, motion, and components. Your job is ONLY to observe the provided screenshots and return the brand-specific DIFF — what's unique to this particular app.
+const SYSTEM_PROMPT = `You are a design systems expert analyzing screenshots to extract a COMPLETE visual fingerprint of this specific app. A generic baseline exists — your job is to override it so thoroughly with observed values that the output looks like it was designed from scratch for THIS app. A viewer should never be able to tell a baseline existed.
 
-Return a compact JSON diff object. Only include what you actually observe. Do not repeat the baseline defaults.
+Return a JSON diff object. Be exhaustive — every value you can observe or accurately infer should be included. Do not leave baseline defaults standing when you can observe the real values.
 
 DIFF SCHEMA:
 {
   "meta": {
-    "primaryColor": "#hex (required — the dominant brand/action color)",
-    "secondaryColor": "#hex (optional)",
-    "bgColor": "#hex (page background, optional)",
-    "surfaceColor": "#hex (card/panel background, optional)",
-    "textColor": "#hex (primary text, optional)",
-    "fontFamily": "string (font name if visible, optional)",
-    "buttonRadius": number (px, optional),
-    "cardRadius": number (px, optional)
+    "primaryColor": "#hex (required — dominant brand/action color)",
+    "secondaryColor": "#hex",
+    "accentColor": "#hex (tertiary accent if present)",
+    "bgColor": "#hex (page/app background)",
+    "surfaceColor": "#hex (card/panel background)",
+    "sidebarColor": "#hex (sidebar background if different from surface)",
+    "textColor": "#hex (primary body text)",
+    "textSecondaryColor": "#hex (secondary/muted text)",
+    "borderColor": "#hex (default border/divider)",
+    "fontFamily": "string (primary font name visible, e.g. Inter, Roboto, DM Sans)",
+    "headingFontFamily": "string (heading font if different from body)",
+    "buttonRadius": number (px — observe button corner rounding),
+    "cardRadius": number (px — observe card corner rounding),
+    "inputRadius": number (px — observe input field corner rounding),
+    "badgeRadius": number (px — observe badge/chip corner rounding, often 9999 for pill),
+    "shadowDepth": "none|subtle|medium|heavy (overall shadow language of the app)",
+    "density": "compact|default|comfortable (spacing density — how tight are rows/padding)",
+    "iconStyle": "outline|filled|duotone|custom (icon visual style observed)",
+    "buttonStyle": "filled|outline|ghost|mixed (dominant button treatment observed)",
+    "cardStyle": "bordered|elevated|flat|mixed"
   },
   "primitives": [
-    { "name": "brand-50..900", "value": "#hex", "type": "color", "resolvedType": "COLOR", "scopes": ["FRAME_FILL"], "hiddenFromPublishing": true }
+    { "name": "brand-50", "value": "#hex" },
+    { "name": "brand-100", "value": "#hex" },
+    ...through brand-900
   ],
   "semanticColors": {
-    "token/name": { "lightValue": "#hex", "darkValue": "#hex", "description": "string" }
+    "action/primary": { "lightValue": "#hex", "darkValue": "#hex" },
+    "surface/page": { "lightValue": "#hex" },
+    "surface/sidebar": { "lightValue": "#hex" }
   },
+  "typography": {
+    "heading": { "fontFamily": "string", "fontWeight": 700, "letterSpacing": -0.3 },
+    "body": { "fontFamily": "string", "fontSize": 14, "lineHeight": 22 },
+    "label": { "fontFamily": "string", "fontSize": 12, "fontWeight": 600, "letterSpacing": 0.1 },
+    "mono": { "fontFamily": "string" }
+  },
+  "shadows": [
+    { "name": "card", "blur": 8, "spread": 0, "x": 0, "y": 2, "color": "#000", "alpha": 0.08 }
+  ],
   "components": [
     {
-      "name": "string (name as it appears in this app, e.g. PatientCard, MedTable)",
+      "name": "string (app-specific name as seen, e.g. PatientCard, MedTable, AppointmentBadge)",
       "tier": "atom|molecule|organism|pattern",
-      "category": "string",
-      "variants": ["string"],
-      "states": ["string"],
-      "variantProperties": {},
-      "componentProperties": {},
-      "tokenBindings": [],
-      "styleBindings": [],
-      "variableBindings": {}
+      "category": "string (domain category, e.g. Medical, Navigation, Data)",
+      "description": "string (one sentence: what this component shows/does in this app)",
+      "variants": ["string (observed states/types, e.g. Active, Inactive, Critical, Normal)"],
+      "states": ["Default", "Hover", "Disabled", ...],
+      "visualStyle": {
+        "bg": "#hex (component background fill color observed)",
+        "fg": "#hex (component foreground/text color observed)",
+        "border": "#hex (component border color, null if none)",
+        "radius": number (component-specific corner radius in px),
+        "shadow": "none|sm|md|lg",
+        "padding": "string (e.g. '8px 16px' — approximate padding observed)",
+        "iconPresent": true/false,
+        "densityOverride": "compact|default|comfortable"
+      },
+      "dataFields": ["string (data labels/fields visible, e.g. 'Patient Name', 'Last Visit', 'Status')"],
+      "variantProperties": { "PropertyName": ["Value1", "Value2"] },
+      "componentProperties": { "propName": { "type": "TEXT|BOOLEAN|INSTANCE_SWAP", "default": "value" } }
     }
   ],
   "patterns": [
-    { "name": "string", "description": "string", "components": ["string"], "layout": "string" }
-  ],
-  "inferenceMap": {
-    "primitives": "found|inferred",
-    "colorTokens": "found|inferred",
-    "components": "found|inferred",
-    "patterns": "found|inferred"
-  }
+    {
+      "name": "string",
+      "description": "string (layout + content description)",
+      "components": ["ComponentName"],
+      "layout": "string (exact layout — sidebar width, grid columns, sticky elements)"
+    }
+  ]
 }
 
-RULES:
-- primitives: list only the brand color ramp (brand-50 through brand-900) derived from the observed primary color. Skip if you cannot determine the brand color.
-- components: list app-specific component names you observe. Include domain-specific ones (e.g. PatientCard, OrderTable). Skip generic ones already in the baseline (Button, Input, Modal, etc.) unless they have app-specific variants.
-- patterns: list the page layouts/flows you can see in the screenshots.
-- meta.primaryColor is REQUIRED. Everything else is optional — only include what you observe.
+OBSERVATION RULES:
+1. primaryColor is REQUIRED — it is the most visible action/brand color (buttons, links, active states).
+2. Extract the complete brand color ramp (brand-50 through brand-900) — derive intermediate shades from the primary.
+3. For every component you can see, describe its ACTUAL visual style (bg color, border, radius, shadow) not generic defaults.
+4. Domain-specific components are the most valuable — PatientCard, MedTable, VitalSign, AppointmentSlot are worth more than Button.
+5. Include generic components (Button, Input, Checkbox) ONLY when you can observe app-specific visual treatments (e.g. a teal filled button with 4px radius is specific).
+6. dataFields: list the actual labels/data you see in cards and tables — this drives faithful Figma component anatomy.
+7. If you cannot observe a value, omit it. Never guess. Observed values win over inferred.
+8. shadowDepth: none = flat design, subtle = barely visible shadows, medium = clear card elevation, heavy = dramatic shadows.
 
-Respond ONLY with the JSON object. No markdown, no explanation, no code fences.`
+Respond ONLY with the JSON object. No markdown, no code fences.`
 
 // ── Extract endpoint ─────────────────────────────────────────────────────────
 async function extractHandler(req: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
@@ -926,14 +1043,200 @@ async function storiesHandler(req: HttpRequest, ctx: InvocationContext): Promise
   // Library name becomes the top-level Storybook sidebar group and Supernova namespace
   const libraryName = (result.meta?.name || 'Design System').replace(/[^a-zA-Z0-9 ]/g, '').trim()
 
+  function detectType(c: any): string {
+    const n = (c.name || '').toLowerCase()
+    const cat = (c.category || '').toLowerCase()
+    if (/checkbox|check/.test(n) || cat === 'checkbox') return 'checkbox'
+    if (/toggle|switch/.test(n)) return 'toggle'
+    if (/radio/.test(n)) return 'radio'
+    if (/avatar|profile/.test(n)) return 'avatar'
+    if (/badge|tag|chip|pill/.test(n)) return 'badge'
+    if (/input|text.*field|search/.test(n) || cat === 'input') return 'input'
+    if (/select|dropdown/.test(n)) return 'select'
+    if (/textarea/.test(n)) return 'textarea'
+    if (/progress|spinner|loading/.test(n)) return 'progress'
+    if (/toast|alert|notification/.test(n)) return 'alert'
+    if (/tooltip/.test(n)) return 'tooltip'
+    if (/modal|dialog/.test(n)) return 'modal'
+    if (/accordion|collapse/.test(n)) return 'accordion'
+    if (/tab/.test(n)) return 'tabs'
+    if (/nav|menu|sidebar/.test(n)) return 'nav'
+    if (/divider|separator/.test(n)) return 'divider'
+    if (/icon/.test(n)) return 'icon'
+    if (/card/.test(n) || c.tier === 'molecule' || c.tier === 'organism') return 'card'
+    if (/table|list/.test(n)) return 'table'
+    return 'button'
+  }
+
+  function buildRender(c: any, type: string): string {
+    const isDisabled = "args.disabled"
+    switch (type) {
+      case 'checkbox': return `(args) => (
+    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: ${isDisabled} ? 'not-allowed' : 'pointer', opacity: ${isDisabled} ? 0.45 : 1 }}>
+      <div style={{ width: 18, height: 18, borderRadius: 4, border: \`2px solid \${args.checked ? '${primary}' : '#E5E7EB'}\`, background: args.checked ? '${primary}' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {args.checked && <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+      </div>
+      {args.label}
+    </label>
+  )`
+      case 'toggle': return `(args) => (
+    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: ${isDisabled} ? 'not-allowed' : 'pointer', opacity: ${isDisabled} ? 0.45 : 1 }}>
+      <div style={{ width: 40, height: 22, borderRadius: 11, background: args.checked ? '${primary}' : '#E5E7EB', position: 'relative', transition: 'background 0.2s' }}>
+        <div style={{ width: 16, height: 16, borderRadius: 8, background: '#fff', position: 'absolute', top: 3, left: args.checked ? 21 : 3, transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,.2)' }} />
+      </div>
+      {args.label}
+    </label>
+  )`
+      case 'radio': return `(args) => (
+    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: ${isDisabled} ? 'not-allowed' : 'pointer', opacity: ${isDisabled} ? 0.45 : 1 }}>
+      <div style={{ width: 18, height: 18, borderRadius: '50%', border: \`2px solid \${args.checked ? '${primary}' : '#E5E7EB'}\`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {args.checked && <div style={{ width: 8, height: 8, borderRadius: '50%', background: '${primary}' }} />}
+      </div>
+      {args.label}
+    </label>
+  )`
+      case 'avatar': return `(args) => {
+    const initials = args.label.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
+    const sizes = { small: 28, medium: 40, large: 56 }
+    const sz = sizes[args.size] || 40
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+        <div style={{ width: sz, height: sz, borderRadius: '50%', background: '${primary}', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: sz * 0.35, fontWeight: 600 }}>{initials}</div>
+        <span style={{ fontSize: 11, color: '#64748B' }}>{args.label}</span>
+      </div>
+    )
+  }`
+      case 'badge': return `(args) => (
+    <span style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 10px', borderRadius: 9999, fontSize: 12, fontWeight: 600, background: args.variant === 'danger' ? '#FEE2E2' : '${primary}20', color: args.variant === 'danger' ? '#DC2626' : '${primary}' }}>
+      {args.label}
+    </span>
+  )`
+      case 'input': return `(args) => (
+    <div style={{ width: 260 }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: '#64748B', marginBottom: 4 }}>{args.label}</div>
+      <div style={{ display: 'flex', alignItems: 'center', height: 38, border: \`1px solid \${args.disabled ? '#E5E7EB' : '${primary}'}\`, borderRadius: ${radius}, padding: '0 12px', background: args.disabled ? '#F9FAFB' : '#fff', opacity: args.disabled ? 0.6 : 1 }}>
+        <span style={{ fontSize: 14, color: '#9CA3AF' }}>Enter {args.label.toLowerCase()}…</span>
+      </div>
+    </div>
+  )`
+      case 'select': return `(args) => (
+    <div style={{ width: 220 }}>
+      <div style={{ display: 'flex', alignItems: 'center', height: 38, border: '1px solid #E5E7EB', borderRadius: ${radius}, padding: '0 12px', background: '#fff', justifyContent: 'space-between', opacity: args.disabled ? 0.45 : 1 }}>
+        <span style={{ fontSize: 14, color: '#9CA3AF' }}>{args.label}</span>
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 5L7 9L11 5" stroke="#9CA3AF" strokeWidth="1.5" strokeLinecap="round"/></svg>
+      </div>
+    </div>
+  )`
+      case 'progress': return `(args) => (
+    <div style={{ width: 240 }}>
+      <div style={{ height: 8, borderRadius: 4, background: '#E5E7EB', overflow: 'hidden' }}>
+        <div style={{ width: \`\${args.value || 65}%\`, height: '100%', borderRadius: 4, background: '${primary}', transition: 'width 0.4s' }} />
+      </div>
+      <div style={{ fontSize: 11, color: '#64748B', marginTop: 4 }}>{args.value || 65}% · {args.label}</div>
+    </div>
+  )`
+      case 'alert': return `(args) => (
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px', borderRadius: ${radius}, background: args.variant === 'danger' ? '#FEF2F2' : '#EFF6FF', border: \`1px solid \${args.variant === 'danger' ? '#FECACA' : '#BFDBFE'}\`, maxWidth: 300 }}>
+      <span style={{ color: args.variant === 'danger' ? '#B91C1C' : '#1D4ED8', fontSize: 14 }}>{args.variant === 'danger' ? '⚠' : 'ℹ'}</span>
+      <div style={{ fontSize: 13, color: args.variant === 'danger' ? '#B91C1C' : '#1D4ED8', fontWeight: 500 }}>{args.label}</div>
+    </div>
+  )`
+      case 'modal': return `(args) => (
+    <div style={{ width: 280, border: '1px solid #E5E7EB', borderRadius: 12, padding: 20, background: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,0.12)' }}>
+      <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8, color: '#111827' }}>{args.label}</div>
+      <div style={{ fontSize: 13, color: '#64748B', marginBottom: 16 }}>Dialog content goes here.</div>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <div style={{ padding: '6px 14px', borderRadius: ${radius}, border: '1px solid #E5E7EB', fontSize: 13, color: '#64748B' }}>Cancel</div>
+        <div style={{ padding: '6px 14px', borderRadius: ${radius}, background: '${primary}', color: '#fff', fontSize: 13 }}>Confirm</div>
+      </div>
+    </div>
+  )`
+      case 'tooltip': return `(args) => (
+    <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+      <div style={{ background: '#1F2937', color: '#fff', fontSize: 12, padding: '5px 10px', borderRadius: 6 }}>{args.label}</div>
+      <div style={{ width: 0, height: 0, borderLeft: '5px solid transparent', borderRight: '5px solid transparent', borderTop: '5px solid #1F2937' }} />
+      <div style={{ fontSize: 12, color: '#64748B' }}>Hover target</div>
+    </div>
+  )`
+      case 'card': {
+        const vs = c.visualStyle || {}
+        const cardBg = vs.bg || '#fff'
+        const cardBorder = vs.border !== null && vs.border !== undefined ? vs.border : '#E5E7EB'
+        const cardRadius2 = vs.radius !== undefined ? vs.radius : (radius + 4)
+        const cardShadow = vs.shadow && vs.shadow !== 'none' ? '0 2px 8px rgba(0,0,0,0.10)' : 'none'
+        const fields = (c.dataFields || []).slice(0, 4)
+        const fieldsJSX = fields.length
+          ? fields.map((f: string) => `
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#64748B', padding: '4px 0', borderTop: '1px solid #F1F5F9' }}>
+        <span style={{ fontWeight: 500 }}>${f}</span><span>—</span>
+      </div>`).join('')
+          : `\n      <div style={{ fontSize: 13, color: '#64748B' }}>Card content for {args.label}</div>`
+        return `(args) => (
+    <div style={{ width: 280, border: '1px solid ${cardBorder}', borderRadius: ${cardRadius2}, padding: '14px 16px', background: '${cardBg}', opacity: args.disabled ? 0.6 : 1, boxShadow: '${cardShadow}' }}>
+      <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 8, color: '#111827' }}>{args.label}</div>${fieldsJSX}
+    </div>
+  )`
+      }
+      case 'tabs': return `(args) => (
+    <div style={{ borderBottom: '1px solid #E5E7EB', display: 'flex', gap: 0 }}>
+      {['Overview', 'Details', 'History'].map((t, i) => (
+        <div key={t} style={{ padding: '8px 16px', fontSize: 13, fontWeight: i === 0 ? 600 : 400, color: i === 0 ? '${primary}' : '#64748B', borderBottom: i === 0 ? '2px solid ${primary}' : '2px solid transparent', cursor: 'pointer' }}>{t}</div>
+      ))}
+    </div>
+  )`
+      case 'accordion': return `(args) => (
+    <div style={{ width: 280, border: '1px solid #E5E7EB', borderRadius: ${radius}, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: '#fff', fontSize: 14, fontWeight: 500 }}>
+        <span>{args.label}</span>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 6L8 10L12 6" stroke="#64748B" strokeWidth="1.5" strokeLinecap="round"/></svg>
+      </div>
+    </div>
+  )`
+      case 'nav': return `() => (
+    <div style={{ display: 'flex', gap: 4 }}>
+      {['Home', 'Library', 'Settings'].map((item, i) => (
+        <div key={item} style={{ padding: '6px 12px', borderRadius: 6, fontSize: 13, fontWeight: i === 0 ? 600 : 400, background: i === 0 ? '${primary}20' : 'none', color: i === 0 ? '${primary}' : '#64748B', cursor: 'pointer' }}>{item}</div>
+      ))}
+    </div>
+  )`
+      default: {
+        const vs = c.visualStyle || {}
+        const compBg = vs.bg || primary
+        const compFg2 = vs.fg || '#fff'
+        const compR = vs.radius !== undefined ? vs.radius : radius
+        const compBorderDefault = vs.border ? `'1px solid ${vs.border}'` : "'none'"
+        return `(args) => (
+    <button disabled={args.disabled} style={{ display: 'inline-flex', alignItems: 'center', padding: '0 16px', height: 38, borderRadius: ${compR}, background: args.variant === 'secondary' ? 'transparent' : '${compBg}', color: args.variant === 'secondary' ? '${compBg}' : '${compFg2}', border: args.variant === 'secondary' ? '1px solid ${compBg}' : ${compBorderDefault}, fontWeight: 500, fontSize: 14, cursor: args.disabled ? 'not-allowed' : 'pointer', opacity: args.disabled ? 0.4 : 1 }}>
+      {args.label}
+    </button>
+  )`
+      }
+    }
+  }
+
   const stories = components.map((c: any) => {
     const tier = c.tier ? c.tier.charAt(0).toUpperCase() + c.tier.slice(1) + 's' : 'Components'
-    // Namespace: LibraryName/Tier/ComponentName — partitions this library in the shared Storybook
     const storyTitle = `${libraryName}/${tier}/${c.name}`
+    const type = detectType(c)
     const variants = (c.variants || []).filter((v: string) => v.toLowerCase() !== 'default')
+
+    const extraArgTypes = type === 'checkbox' || type === 'toggle' || type === 'radio'
+      ? `\n    checked: { control: 'boolean' },`
+      : type === 'avatar' ? `\n    size: { control: { type: 'select' }, options: ['small', 'medium', 'large'] },`
+      : type === 'progress' ? `\n    value: { control: { type: 'range', min: 0, max: 100, step: 5 } },`
+      : type === 'badge' || type === 'alert' ? `\n    variant: { control: { type: 'select' }, options: ['default', 'danger'] },`
+      : type === 'button' ? `\n    variant: { control: { type: 'select' }, options: ['primary', 'secondary'] },` : ''
+
+    const extraDefaultArgs = type === 'checkbox' || type === 'toggle' || type === 'radio'
+      ? `, checked: true`
+      : type === 'avatar' ? `, size: 'medium'`
+      : type === 'progress' ? `, value: 65`
+      : type === 'badge' || type === 'alert' ? `, variant: 'default'`
+      : type === 'button' ? `, variant: 'primary'` : ''
+
     const storyContent = variants.map((v: string) => `
 export const ${v.replace(/[^a-zA-Z0-9]/g, '') || 'Variant'} = {
-  args: { ...Default.args, label: '${v}' },
+  args: { ...Default.args, label: '${v}'${type === 'checkbox' || type === 'toggle' || type === 'radio' ? `, checked: ${!(v.toLowerCase().includes('uncheck') || v.toLowerCase().includes('off'))}` : ''} },
 }`).join('\n')
 
     return {
@@ -945,17 +1248,13 @@ export default {
   tags: ['autodocs', '${libraryName.toLowerCase().replace(/\s+/g, '-')}'],
   argTypes: {
     label: { control: 'text' },
-    disabled: { control: 'boolean' },
+    disabled: { control: 'boolean' },${extraArgTypes}
   },
-  render: (args) => (
-    <div style={{ display: 'inline-flex', alignItems: 'center', padding: '0 16px', height: 38, borderRadius: ${radius}, background: '${primary}', color: '#fff', fontWeight: 500, fontSize: 14, cursor: args.disabled ? 'not-allowed' : 'pointer', opacity: args.disabled ? 0.4 : 1 }}>
-      {args.label}
-    </div>
-  ),
+  render: ${buildRender(c, type)},
 }
 
 export const Default = {
-  args: { label: '${c.name}', disabled: false },
+  args: { label: '${c.name}', disabled: false${extraDefaultArgs} },
 }
 ${storyContent}
 `,

@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Inter, system-ui, sans-serif; font-size: 12px; color: #111; background: #fff; padding: 16px; }
+  h1 { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+  p { color: #555; margin-bottom: 12px; line-height: 1.5; }
+  .drop-zone {
+    border: 2px dashed #CBD5E1; border-radius: 8px; padding: 24px 16px;
+    text-align: center; cursor: pointer; color: #64748B; margin-bottom: 12px;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .drop-zone.drag-over { border-color: #6366F1; background: #EEF2FF; }
+  .drop-zone input { display: none; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 10px; font-weight: 600; background: #EEF2FF; color: #6366F1; margin-left: 6px; }
+  button {
+    display: block; width: 100%; padding: 9px; border-radius: 6px; border: none;
+    background: #6366F1; color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; margin-bottom: 8px;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.secondary { background: transparent; border: 1px solid #E2E8F0; color: #374151; }
+  #status { padding: 10px 12px; border-radius: 6px; background: #F8FAFC; border: 1px solid #E2E8F0; font-size: 12px; min-height: 40px; white-space: pre-wrap; line-height: 1.5; }
+  #status.error { background: #FEF2F2; border-color: #FECACA; color: #B91C1C; }
+  #status.success { background: #F0FDF4; border-color: #BBF7D0; color: #15803D; }
+  .progress-bar { height: 4px; border-radius: 2px; background: #E2E8F0; overflow: hidden; margin-top: 8px; display: none; }
+  .progress-bar.visible { display: block; }
+  .progress-fill { height: 100%; background: #6366F1; transition: width 0.3s; border-radius: 2px; }
+  #file-name { font-size: 11px; color: #6366F1; margin-bottom: 8px; font-weight: 600; display: none; }
+  .section { margin-bottom: 16px; }
+  .section-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #94A3B8; margin-bottom: 6px; }
+  .checklist { list-style: none; }
+  .checklist li { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #374151; padding: 2px 0; }
+  .check { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #CBD5E1; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .check.done { background: #22C55E; border-color: #22C55E; color: #fff; font-size: 9px; }
+  .check.skip { background: #E2E8F0; border-color: #E2E8F0; color: #94A3B8; font-size: 9px; }
+</style>
+</head>
+<body>
+<h1>Design Library Builder <span class="badge">Import</span></h1>
+<p>Import a design-system.json to create all variables, styles, and components in this Figma file.</p>
+
+<div class="section">
+  <div class="section-label">What gets created</div>
+  <ul class="checklist" id="checklist">
+    <li><span class="check" id="ck-vars">·</span> Variable collections (Color, Spacing, Motion, Typography)</li>
+    <li><span class="check" id="ck-styles">·</span> Paint, Text &amp; Effect styles</li>
+    <li><span class="check" id="ck-comps">·</span> Component frames with variants</li>
+    <li><span class="check" id="ck-page">·</span> Organized library page</li>
+  </ul>
+</div>
+
+<div class="drop-zone" id="drop-zone">
+  <div style="font-size:22px;margin-bottom:6px">📄</div>
+  <div style="font-weight:600;margin-bottom:4px">Drop design-system.json here</div>
+  <div>or click to browse</div>
+  <input type="file" id="file-input" accept=".json,application/json">
+</div>
+<div id="file-name"></div>
+
+<button id="import-btn" disabled>Import to Figma</button>
+<button class="secondary" id="paste-btn">Paste JSON</button>
+
+<div class="progress-bar" id="progress-bar">
+  <div class="progress-fill" id="progress-fill" style="width:0%"></div>
+</div>
+<div id="status">Ready — select a design-system.json file to begin.</div>
+
+<script>
+  let designData = null
+
+  const dropZone = document.getElementById('drop-zone')
+  const fileInput = document.getElementById('file-input')
+  const importBtn = document.getElementById('import-btn')
+  const pasteBtn = document.getElementById('paste-btn')
+  const statusEl = document.getElementById('status')
+  const fileNameEl = document.getElementById('file-name')
+  const progressBar = document.getElementById('progress-bar')
+  const progressFill = document.getElementById('progress-fill')
+
+  dropZone.addEventListener('click', () => fileInput.click())
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over') })
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'))
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault()
+    dropZone.classList.remove('drag-over')
+    const f = e.dataTransfer?.files?.[0]
+    if (f) readFile(f)
+  })
+  fileInput.addEventListener('change', () => { if (fileInput.files[0]) readFile(fileInput.files[0]) })
+
+  function readFile(file) {
+    const reader = new FileReader()
+    reader.onload = e => {
+      try {
+        designData = JSON.parse(e.target.result)
+        fileNameEl.textContent = '✓ ' + file.name
+        fileNameEl.style.display = 'block'
+        importBtn.disabled = false
+        setStatus('Ready to import: ' + (designData.meta?.name || 'Design System'), '')
+      } catch {
+        setStatus('Invalid JSON file — please select a valid design-system.json', 'error')
+      }
+    }
+    reader.readAsText(file)
+  }
+
+  pasteBtn.addEventListener('click', () => {
+    const json = prompt('Paste design-system.json contents:')
+    if (!json) return
+    try {
+      designData = JSON.parse(json)
+      fileNameEl.textContent = '✓ Pasted JSON'
+      fileNameEl.style.display = 'block'
+      importBtn.disabled = false
+      setStatus('Ready to import: ' + (designData.meta?.name || 'Design System'), '')
+    } catch {
+      setStatus('Invalid JSON — please paste valid design-system.json content', 'error')
+    }
+  })
+
+  importBtn.addEventListener('click', () => {
+    if (!designData) return
+    importBtn.disabled = true
+    pasteBtn.disabled = true
+    progressBar.classList.add('visible')
+    setProgress(5)
+    setStatus('Starting import…', '')
+    parent.postMessage({ pluginMessage: { type: 'import', data: designData } }, '*')
+  })
+
+  window.onmessage = e => {
+    const msg = e.data.pluginMessage
+    if (!msg) return
+    if (msg.type === 'progress') {
+      setProgress(msg.pct || 0)
+      setStatus(msg.message || '', '')
+      if (msg.check) markCheck(msg.check, msg.skip ? 'skip' : 'done')
+    }
+    if (msg.type === 'done') {
+      setProgress(100)
+      setStatus('✓ Import complete!\n\n' + (msg.summary || ''), 'success')
+      importBtn.disabled = false
+      pasteBtn.disabled = false
+    }
+    if (msg.type === 'error') {
+      setStatus('Error: ' + msg.message, 'error')
+      setProgress(0)
+      progressBar.classList.remove('visible')
+      importBtn.disabled = false
+      pasteBtn.disabled = false
+    }
+  }
+
+  function setStatus(msg, cls) {
+    statusEl.textContent = msg
+    statusEl.className = cls || ''
+  }
+
+  function setProgress(pct) {
+    progressFill.style.width = pct + '%'
+  }
+
+  function markCheck(id, state) {
+    const el = document.getElementById('ck-' + id)
+    if (!el) return
+    el.className = 'check ' + state
+    el.textContent = state === 'done' ? '✓' : '−'
+  }
+</script>
+</body>
+</html>

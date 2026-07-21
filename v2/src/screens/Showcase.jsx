@@ -478,6 +478,287 @@ function LabeledInput({ label, value, placeholder, focused, radius, border, bran
   )
 }
 
+// ── Component type detection ──────────────────────────────────────────────────
+function detectComponentType(component) {
+  const n = (component.name || '').toLowerCase()
+  const cat = (component.category || '').toLowerCase()
+  if (/checkbox|check/.test(n) || cat === 'checkbox') return 'checkbox'
+  if (/toggle|switch/.test(n)) return 'toggle'
+  if (/radio/.test(n)) return 'radio'
+  if (/avatar|profile\s*pic|user\s*icon/.test(n)) return 'avatar'
+  if (/badge|tag|chip|pill|label/.test(n)) return 'badge'
+  if (/input|text\s*field|field|search/.test(n) || cat === 'input') return 'input'
+  if (/select|dropdown|combobox/.test(n)) return 'select'
+  if (/textarea/.test(n)) return 'textarea'
+  if (/progress|loading|spinner/.test(n)) return 'progress'
+  if (/toast|alert|notification|snackbar/.test(n)) return 'alert'
+  if (/tooltip/.test(n)) return 'tooltip'
+  if (/card/.test(n) || component.tier === 'molecule' || component.tier === 'organism') return 'card'
+  if (/table|row|list/.test(n)) return 'table'
+  if (/nav|menu|sidebar/.test(n)) return 'nav'
+  if (/modal|dialog/.test(n)) return 'modal'
+  if (/icon/.test(n)) return 'icon'
+  if (/divider|separator/.test(n)) return 'divider'
+  if (/accordion|collapse|expand/.test(n)) return 'accordion'
+  if (/tab/.test(n)) return 'tabs'
+  if (/button|btn|action/.test(n) || cat === 'button') return 'button'
+  return 'button'
+}
+
+// ── Per-type component previews ───────────────────────────────────────────────
+function ComponentPreview({ component, variant, S }) {
+  const type = detectComponentType(component)
+  const isDisabled = (variant || '').toLowerCase() === 'disabled'
+  const isDanger = (variant || '').toLowerCase().includes('danger') || (variant || '').toLowerCase().includes('error') || (variant || '').toLowerCase().includes('destructive')
+  const isSecondary = (variant || '').toLowerCase().includes('secondary') || (variant || '').toLowerCase().includes('outline') || (variant || '').toLowerCase().includes('ghost')
+  const label = variant && variant.toLowerCase() !== 'default' ? variant : component.name
+
+  // Per-component visual overrides from extraction fingerprint
+  const vs = component.visualStyle || {}
+  const compBrand = vs.bg || S.brand
+  const compFg = vs.fg || '#fff'
+  const compBorder = vs.border || S.border
+  const compRadius = vs.radius !== undefined ? vs.radius : S.radius
+  const compShadow = vs.shadow && vs.shadow !== 'none' ? '0 2px 8px rgba(0,0,0,0.10)' : 'none'
+
+  const baseBtn = {
+    display: 'inline-flex', alignItems: 'center', padding: '0 16px', height: 36, borderRadius: compRadius,
+    fontWeight: 500, fontSize: 13, cursor: isDisabled ? 'not-allowed' : 'pointer', fontFamily: S.bodyFont,
+    opacity: isDisabled ? 0.45 : 1, transition: 'all 0.15s',
+  }
+
+  if (type === 'checkbox') {
+    const checked = !(variant || '').toLowerCase().includes('uncheck') && !(variant || '').toLowerCase().includes('off')
+    return (
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: isDisabled ? 'not-allowed' : 'pointer', opacity: isDisabled ? 0.45 : 1, fontFamily: S.bodyFont, fontSize: 14 }}>
+        <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${checked ? S.brand : S.border}`, background: checked ? S.brand : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.15s' }}>
+          {checked && <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+        </div>
+        {label}
+      </label>
+    )
+  }
+
+  if (type === 'toggle') {
+    const on = !(variant || '').toLowerCase().includes('off')
+    return (
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: isDisabled ? 'not-allowed' : 'pointer', opacity: isDisabled ? 0.45 : 1, fontFamily: S.bodyFont, fontSize: 14 }}>
+        <div style={{ width: 40, height: 22, borderRadius: 11, background: on ? S.brand : S.border, position: 'relative', transition: 'background 0.2s', flexShrink: 0 }}>
+          <div style={{ width: 16, height: 16, borderRadius: 8, background: '#fff', position: 'absolute', top: 3, left: on ? 21 : 3, transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,.2)' }} />
+        </div>
+        {label}
+      </label>
+    )
+  }
+
+  if (type === 'radio') {
+    const selected = !(variant || '').toLowerCase().includes('unselect')
+    return (
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: isDisabled ? 'not-allowed' : 'pointer', opacity: isDisabled ? 0.45 : 1, fontFamily: S.bodyFont, fontSize: 14 }}>
+        <div style={{ width: 18, height: 18, borderRadius: '50%', border: `2px solid ${selected ? S.brand : S.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          {selected && <div style={{ width: 8, height: 8, borderRadius: '50%', background: S.brand }} />}
+        </div>
+        {label}
+      </label>
+    )
+  }
+
+  if (type === 'avatar') {
+    const initials = component.name.split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2) || 'AV'
+    const sizes = { small: 28, medium: 40, large: 56 }
+    const sz = sizes[(variant || '').toLowerCase()] || 40
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+        <div style={{ width: sz, height: sz, borderRadius: '50%', background: S.brand, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: sz * 0.35, fontWeight: 600, fontFamily: S.bodyFont, opacity: isDisabled ? 0.45 : 1 }}>{initials}</div>
+        <span style={{ fontSize: 11, color: S.text2 }}>{label}</span>
+      </div>
+    )
+  }
+
+  if (type === 'badge') {
+    const badgeRadius = vs.radius !== undefined ? vs.radius : 9999
+    const bg = isDanger ? '#FEE2E2' : isSecondary ? S.bg : (vs.bg || S.brandSoft)
+    const color = isDanger ? '#DC2626' : isSecondary ? S.text2 : (vs.fg || S.brand)
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 10px', borderRadius: badgeRadius, fontSize: 12, fontWeight: 600, background: bg, color, fontFamily: S.bodyFont, opacity: isDisabled ? 0.45 : 1 }}>
+        {label}
+      </span>
+    )
+  }
+
+  if (type === 'input') {
+    return (
+      <div style={{ width: '100%', maxWidth: 280 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: S.text2, marginBottom: 4, fontFamily: S.bodyFont }}>{label}</div>
+        <div style={{ display: 'flex', alignItems: 'center', height: 38, border: `1px solid ${S.border}`, borderRadius: S.radius, padding: '0 12px', background: isDisabled ? S.bg : '#fff', opacity: isDisabled ? 0.6 : 1 }}>
+          <span style={{ fontSize: 14, color: S.text2, fontFamily: S.bodyFont }}>Enter {component.name.toLowerCase()}…</span>
+        </div>
+      </div>
+    )
+  }
+
+  if (type === 'select') {
+    return (
+      <div style={{ width: '100%', maxWidth: 240 }}>
+        <div style={{ display: 'flex', alignItems: 'center', height: 38, border: `1px solid ${S.border}`, borderRadius: S.radius, padding: '0 12px', background: '#fff', justifyContent: 'space-between', opacity: isDisabled ? 0.45 : 1 }}>
+          <span style={{ fontSize: 14, color: S.text2, fontFamily: S.bodyFont }}>Select option…</span>
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 5L7 9L11 5" stroke={S.text2} strokeWidth="1.5" strokeLinecap="round"/></svg>
+        </div>
+      </div>
+    )
+  }
+
+  if (type === 'textarea') {
+    return (
+      <div style={{ width: '100%', maxWidth: 280, border: `1px solid ${S.border}`, borderRadius: S.radius, padding: '8px 12px', background: isDisabled ? S.bg : '#fff', minHeight: 80, opacity: isDisabled ? 0.6 : 1 }}>
+        <span style={{ fontSize: 14, color: S.text2, fontFamily: S.bodyFont }}>Type here…</span>
+      </div>
+    )
+  }
+
+  if (type === 'progress') {
+    const pct = 65
+    return (
+      <div style={{ width: '100%', maxWidth: 240 }}>
+        <div style={{ height: 8, borderRadius: 4, background: S.bg, overflow: 'hidden' }}>
+          <div style={{ width: `${pct}%`, height: '100%', borderRadius: 4, background: S.brand, transition: 'width 0.4s' }} />
+        </div>
+        <div style={{ fontSize: 11, color: S.text2, marginTop: 4, fontFamily: S.bodyFont }}>{pct}% · {label}</div>
+      </div>
+    )
+  }
+
+  if (type === 'alert') {
+    const bg = isDanger ? '#FEF2F2' : '#EFF6FF'
+    const border = isDanger ? '#FECACA' : '#BFDBFE'
+    const color = isDanger ? '#B91C1C' : '#1D4ED8'
+    const icon = isDanger ? '⚠' : 'ℹ'
+    return (
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px', borderRadius: S.radius, background: bg, border: `1px solid ${border}`, maxWidth: 300, fontFamily: S.bodyFont }}>
+        <span style={{ color, fontSize: 14, flexShrink: 0 }}>{icon}</span>
+        <div style={{ fontSize: 13, color, fontWeight: 500 }}>{label}</div>
+      </div>
+    )
+  }
+
+  if (type === 'divider') {
+    return (
+      <div style={{ width: '100%', maxWidth: 280 }}>
+        <hr style={{ border: 'none', borderTop: `1px solid ${S.border}`, margin: '8px 0' }} />
+        {label !== component.name && <span style={{ fontSize: 12, color: S.text2, fontFamily: S.bodyFont }}>{label}</span>}
+      </div>
+    )
+  }
+
+  if (type === 'icon') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+        <div style={{ width: 40, height: 40, borderRadius: 8, background: S.brandSoft, display: 'flex', alignItems: 'center', justifyContent: 'center', color: S.brand, fontSize: 20 }}>◈</div>
+        <span style={{ fontSize: 11, color: S.text2, fontFamily: S.bodyFont }}>{label}</span>
+      </div>
+    )
+  }
+
+  if (type === 'tabs') {
+    const tabLabels = component.variants?.length >= 2 ? component.variants.slice(0, 3) : [component.name, 'Tab 2', 'Tab 3']
+    return (
+      <div style={{ borderBottom: `1px solid ${S.border}`, display: 'flex', gap: 0 }}>
+        {tabLabels.map((t, i) => (
+          <div key={t} style={{ padding: '8px 16px', fontSize: 13, fontWeight: i === 0 ? 600 : 400, color: i === 0 ? S.brand : S.text2, borderBottom: i === 0 ? `2px solid ${S.brand}` : '2px solid transparent', cursor: 'pointer', fontFamily: S.bodyFont }}>{t}</div>
+        ))}
+      </div>
+    )
+  }
+
+  if (type === 'accordion') {
+    return (
+      <div style={{ width: '100%', maxWidth: 280, border: `1px solid ${S.border}`, borderRadius: S.radius, overflow: 'hidden' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: '#fff', fontFamily: S.bodyFont, fontSize: 14, fontWeight: 500 }}>
+          <span>{label}</span>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 6L8 10L12 6" stroke={S.text2} strokeWidth="1.5" strokeLinecap="round"/></svg>
+        </div>
+      </div>
+    )
+  }
+
+  if (type === 'nav') {
+    return (
+      <div style={{ display: 'flex', gap: 4, fontFamily: S.bodyFont }}>
+        {['Home', 'Library', 'Settings'].map((item, i) => (
+          <div key={item} style={{ padding: '6px 12px', borderRadius: 6, fontSize: 13, fontWeight: i === 0 ? 600 : 400, background: i === 0 ? S.brandSoft : 'none', color: i === 0 ? S.brand : S.text2, cursor: 'pointer' }}>{item}</div>
+        ))}
+      </div>
+    )
+  }
+
+  if (type === 'card') {
+    const cardBg = vs.bg || '#fff'
+    const cardBorder = vs.border !== null ? (vs.border || S.border) : 'transparent'
+    const cardShadow = compShadow
+    const fields = component.dataFields || []
+    return (
+      <div style={{ width: '100%', maxWidth: 280, border: `1px solid ${cardBorder}`, borderRadius: compRadius || (S.cardRadius || S.radius), padding: '14px 16px', background: cardBg, opacity: isDisabled ? 0.6 : 1, boxShadow: cardShadow }}>
+        <div style={{ fontWeight: 600, fontSize: 14, marginBottom: fields.length ? 8 : 4, color: vs.fg || S.text, fontFamily: S.bodyFont }}>{component.name}</div>
+        {fields.slice(0, 3).map((f, i) => (
+          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: S.text2, fontFamily: S.bodyFont, padding: '2px 0', borderTop: i === 0 ? `1px solid ${S.border}` : 'none' }}>
+            <span style={{ fontWeight: 500 }}>{f}</span>
+            <span style={{ color: S.brand }}>—</span>
+          </div>
+        ))}
+        {!fields.length && <div style={{ fontSize: 12, color: S.text2, fontFamily: S.bodyFont }}>{component.description || label}</div>}
+      </div>
+    )
+  }
+
+  if (type === 'table') {
+    return (
+      <div style={{ width: '100%', maxWidth: 300, fontSize: 12, fontFamily: S.bodyFont }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0', borderBottom: `1px solid ${S.border}` }}>
+          {['Name', 'Status', 'Date'].map(h => <div key={h} style={{ padding: '6px 8px', fontWeight: 600, color: S.text2, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</div>)}
+        </div>
+        {[['Item A', 'Active', 'Jul 21'], ['Item B', 'Pending', 'Jul 20']].map((row, i) => (
+          <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', borderBottom: `1px solid ${S.border}` }}>
+            {row.map((cell, j) => <div key={j} style={{ padding: '8px', color: S.text, fontSize: 12 }}>{cell}</div>)}
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  if (type === 'tooltip') {
+    return (
+      <div style={{ position: 'relative', display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+        <div style={{ background: '#1F2937', color: '#fff', fontSize: 12, padding: '5px 10px', borderRadius: 6, whiteSpace: 'nowrap', fontFamily: S.bodyFont }}>{label}</div>
+        <div style={{ width: 0, height: 0, borderLeft: '5px solid transparent', borderRight: '5px solid transparent', borderTop: '5px solid #1F2937' }} />
+        <div style={{ fontSize: 12, color: S.text2, fontFamily: S.bodyFont }}>Hover target</div>
+      </div>
+    )
+  }
+
+  if (type === 'modal') {
+    return (
+      <div style={{ width: '100%', maxWidth: 260, border: `1px solid ${S.border}`, borderRadius: S.cardRadius || 12, padding: '16px', background: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,0.12)' }}>
+        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8, color: S.text, fontFamily: S.bodyFont }}>{label}</div>
+        <div style={{ fontSize: 13, color: S.text2, marginBottom: 14, fontFamily: S.bodyFont }}>Dialog content goes here.</div>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <div style={{ padding: '6px 14px', borderRadius: S.radius, border: `1px solid ${S.border}`, fontSize: 13, cursor: 'pointer', color: S.text2, fontFamily: S.bodyFont }}>Cancel</div>
+          <div style={{ padding: '6px 14px', borderRadius: S.radius, background: S.brand, color: '#fff', fontSize: 13, cursor: 'pointer', fontFamily: S.bodyFont }}>Confirm</div>
+        </div>
+      </div>
+    )
+  }
+
+  // Default: button — uses extracted visualStyle when available
+  const bg = isDanger ? '#DC2626' : isSecondary ? 'transparent' : compBrand
+  const color = isSecondary ? (isDanger ? '#DC2626' : compBrand) : compFg
+  const border2 = isSecondary ? `1px solid ${isDanger ? '#DC2626' : compBrand}` : (vs.border ? `1px solid ${vs.border}` : 'none')
+  return (
+    <button disabled={isDisabled} style={{ ...baseBtn, background: bg, color, border: border2, boxShadow: compShadow }}>
+      {label}
+    </button>
+  )
+}
+
 // ── Inline story renderer ─────────────────────────────────────────────────────
 function StoryCard({ component, S }) {
   const variants = component.variants?.length ? component.variants : ['Default']
@@ -503,9 +784,7 @@ function StoryCard({ component, S }) {
         </div>
       )}
       <div style={{ padding: '14px 16px', background: S.bg, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 56 }}>
-        <button style={{ display: 'inline-flex', alignItems: 'center', padding: '0 16px', height: 36, borderRadius: S.radius, background: S.brand, color: '#fff', fontWeight: 500, fontSize: 13, border: 'none', cursor: 'pointer', fontFamily: S.bodyFont }}>
-          {active} — {component.name}
-        </button>
+        <ComponentPreview component={component} variant={active} S={S} />
       </div>
       {component.description && <div style={{ fontSize: 12, color: S.text2, marginTop: 8 }}>{component.description}</div>}
     </div>
