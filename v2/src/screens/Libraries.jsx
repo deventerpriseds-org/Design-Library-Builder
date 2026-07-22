@@ -36,7 +36,7 @@ function PlatformBadge({ href, label, color, icon }) {
 
 function LibraryCard({ system, onSelect }) {
   const name = system.name || system.meta?.name || 'Untitled Library'
-  const brand = system.primaryColor || system.meta?.primaryColor || '#6366f1'
+  const brand = system.primaryColor || system.meta?.primaryColor || '#1B4F5C'
   const figmaFileId = system.figmaFileId
   const figmaUrl = figmaFileId ? `https://www.figma.com/design/${figmaFileId}` : null
   const sbUrl = storybookUrl()
