@@ -270,12 +270,23 @@ jobs:
               await page.waitForTimeout(1000)
             }
             const colors = await page.evaluate(() => {
+              // Chromium serializes hex colors as rgb() in getAttribute('style'),
+              // so use el.style.background (JS property) which preserves the original value.
               const els = document.querySelectorAll('[style]')
               const found = new Set()
+              const hexRe = /#[0-9a-fA-F]{6}/g
               for (const el of els) {
-                const s = el.getAttribute('style') || ''
-                const m = s.match(/#[0-9a-fA-F]{6,8}/g)
-                if (m) m.forEach(c => found.add(c.slice(0,7).toLowerCase()))
+                // JS style properties preserve original hex values
+                const props = ['background', 'backgroundColor', 'color', 'borderColor', 'fill']
+                for (const p of props) {
+                  const v = el.style[p] || ''
+                  const m = v.match(hexRe)
+                  if (m) m.forEach(c => found.add(c.toLowerCase()))
+                }
+                // Also try getAttribute for any non-normalized values
+                const attr = el.getAttribute('style') || ''
+                const m2 = attr.match(hexRe)
+                if (m2) m2.forEach(c => found.add(c.toLowerCase()))
               }
               return [...found]
             })
