@@ -111,7 +111,14 @@ jobs:
             const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
             const page = await context.newPage()
             const consoleErrors = []
-            page.on('console', msg => { if (msg.type() === 'error') consoleErrors.push(msg.text()) })
+            page.on('console', msg => {
+              if (msg.type() === 'error') {
+                const text = msg.text()
+                // "Failed to load resource" is a browser-generated message for HTTP error responses
+                // tracked separately via page.on('response') — skip to avoid double-counting
+                if (!text.includes('Failed to load resource')) consoleErrors.push(text)
+              }
+            })
             // Exclude known infrastructure 500: /palettes uses PG which isn't provisioned; app handles gracefully
             page.on('response', resp => {
               if (resp.status() >= 500 && !resp.url().includes('/palettes')) {
