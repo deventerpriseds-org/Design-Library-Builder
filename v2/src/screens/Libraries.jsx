@@ -9,9 +9,8 @@ function slugify(name) {
   return (name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 }
 
-function storybookUrl(libraryName) {
-  const slug = slugify(libraryName)
-  return `${STORYBOOK_BASE}/?path=/story/${slug}`
+function storybookUrl() {
+  return STORYBOOK_BASE
 }
 
 function PlatformBadge({ href, label, color, icon }) {
@@ -40,7 +39,7 @@ function LibraryCard({ system, onSelect }) {
   const brand = system.primaryColor || system.meta?.primaryColor || '#6366f1'
   const figmaFileId = system.figmaFileId
   const figmaUrl = figmaFileId ? `https://www.figma.com/design/${figmaFileId}` : null
-  const sbUrl = storybookUrl(name)
+  const sbUrl = storybookUrl()
   const componentCount = system.components?.length || 0
   const tokenCount = Object.keys(system.colors || {}).length + Object.keys(system.typography || {}).length
   const isPublic = system.visibility === 'public'
