@@ -19,47 +19,37 @@ function authHeaders() {
   return {}
 }
 
-// POST /design-library/extract-async → poll GET /design-library/extract-job/:id
-// The sync endpoint (?sync=1) holds the connection open until Anthropic finishes — real images
-// hit Azure's gateway timeout and the browser gets "Failed to fetch". The async path returns
-// a jobId immediately; the queue worker processes extraction independently of the HTTP connection.
+// POST /design-library/extract?sync=1 — waits for the full Anthropic response and returns single JSON.
+// Previously used streaming NDJSON which caused "Failed to fetch" in browsers for larger images.
+// The sync endpoint returns a plain application/json response; no streaming connection to drop.
 export async function extractDesign({ name, primaryColor, images, urls, description }, onChunk) {
   const body = { name, primaryColor, images, urls, description }
-  onChunk?.({ type: 'progress', category: 'extracting', message: 'Queuing extraction…', done: false })
-
-  // Step 1: enqueue
-  const enqRes = await fetch(`${API_BASE}/design-library/extract-async`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify(body),
-  })
-  if (!enqRes.ok) {
-    const err = await enqRes.json().catch(() => ({}))
-    throw new Error(err?.error || `Extract failed: ${enqRes.status}`)
-  }
-  const { jobId } = await enqRes.json()
-  if (!jobId) throw new Error('No jobId returned from extract-async')
-
   onChunk?.({ type: 'progress', category: 'extracting', message: 'Analysing design…', done: false })
 
-  // Step 2: poll until done (up to 3 min, 4 s interval)
-  const MAX_POLLS = 45
-  for (let i = 0; i < MAX_POLLS; i++) {
-    await new Promise(r => setTimeout(r, 4000))
-    const pollRes = await fetch(`${API_BASE}/design-library/extract-job/${jobId}`, { headers: authHeaders() })
-    if (!pollRes.ok) continue
-    const poll = await pollRes.json()
-    if (poll.status === 'done') {
-      if (!poll.result) throw new Error('Job completed but no result returned')
-      onChunk?.({ type: 'progress', category: 'finalizing', message: 'Extraction complete', done: true })
-      return poll.result
-    }
-    if (poll.status === 'error') throw new Error(poll.error || 'Extraction failed on the server')
-    // still pending — emit progress tick
-    const elapsed = (i + 1) * 4
+  // Emit elapsed-time ticks while the sync request is in flight
+  let elapsed = 0
+  const ticker = setInterval(() => {
+    elapsed += 4
     onChunk?.({ type: 'progress', category: 'extracting', message: `Analysing design… ${elapsed}s`, done: false })
+  }, 4000)
+
+  try {
+    const res = await fetch(`${API_BASE}/design-library/extract?sync=1`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err?.error || `Extract failed: ${res.status}`)
+    }
+    const data = await res.json()
+    if (!data?.data) throw new Error('Extraction returned no result')
+    onChunk?.({ type: 'progress', category: 'finalizing', message: 'Extraction complete', done: true })
+    return data.data
+  } finally {
+    clearInterval(ticker)
   }
-  throw new Error('Extraction timed out after 3 minutes — try a smaller image')
 }
 
 // GET /design-library/saved  — list user's saved design systems
