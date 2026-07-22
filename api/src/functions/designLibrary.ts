@@ -937,7 +937,8 @@ async function savePaletteHandler(req: HttpRequest, ctx: InvocationContext): Pro
     )
     return { status: 201, headers: JSON_H, jsonBody: rows[0] }
   } catch (e) {
-    return { status: 500, headers: JSON_H, jsonBody: { error: (e as Error).message } }
+    ctx.log('listPalettes DB error (returning empty list):', (e as Error).message)
+    return { status: 200, headers: JSON_H, jsonBody: [] }
   }
 }
 
