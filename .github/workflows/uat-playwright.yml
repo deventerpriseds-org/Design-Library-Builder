@@ -89,7 +89,7 @@ jobs:
           LIBRARY_NAME: ${{ github.event.inputs.library_name }}
         run: |
           npm install playwright
-          cat > /tmp/uat.js << 'PLAYWRIGHT_SCRIPT'
+          cat > uat.js << 'PLAYWRIGHT_SCRIPT'
           const { chromium } = require('playwright')
           const APP_URL = process.env.APP_URL
           const UAT_TOKEN = process.env.UAT_BYPASS_TOKEN
@@ -288,4 +288,4 @@ jobs:
           }
           PLAYWRIGHT_SCRIPT
 
-          node /tmp/uat.js
+          node uat.js
