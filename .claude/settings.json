@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "statusMessage": "Checking mandatory skills compliance…",
+            "command": "echo '{\"hookSpecificOutput\": {\"hookEventName\": \"Stop\", \"additionalContext\": \"MANDATORY SKILLS CHECKLIST — confirm each before marking any task done:\\n1. REMEMBER (/remember) — read memory.md at session start; write + commit after arch decisions, feature completions, or session end.\\n2. TRACK-ACTIONS — every user request has an ACT entry in actions.md with current status. Close with evidence link when done.\\n3. DEFINE-ACCEPTANCE-CRITERIA — ACs written and user-confirmed BEFORE coding. ACs live in the ACT item.\\n4. VERIFY-WORK — Mode A (Playwright against live app) for any UI/frontend change. Mode B (curl/GH Actions) for backend-only. CI passing does NOT satisfy Mode A. If Playwright is blocked by CCR proxy, state it explicitly — do not claim UAT passed.\\n5. VERIFIER AGENT — spawn Agent(subagent_type=verifier) after claiming done; it re-checks claims independently with no shared context.\\n6. DESIGN-LIBRARY-UAT — after any change to /upload, /extract, /save, /saved, or the extraction worker: run Path B microtests then uat-extract.yml workflow.\\n\\nSKIP RULES: Any skip requires an explicit upfront alert to the user naming the skill and the reason before work begins. Never skip silently.\"}}'"
+          }
+        ]
+      }
+    ]
+  }
+}
