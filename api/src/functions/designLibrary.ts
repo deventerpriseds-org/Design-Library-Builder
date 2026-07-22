@@ -35,7 +35,8 @@ const STREAM_H = { 'Content-Type': 'application/x-ndjson', 'Transfer-Encoding': 
 // ── Extraction prompt ────────────────────────────────────────────────────────
 // ── Baseline design system (merged with Claude's brand diff) ─────────────────
 function buildBaseline(name: string, primaryColor: string, fontFamily: string) {
-  const p = primaryColor || '#6366F1'
+  // Use a neutral slate as the no-extraction fallback — NOT indigo, which looks like a broken brand
+  const p = primaryColor || '#475569'
   const font = fontFamily || 'Inter'
   return {
     meta: {
