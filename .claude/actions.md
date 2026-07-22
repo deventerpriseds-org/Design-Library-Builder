@@ -25,7 +25,7 @@ Last updated: 2026-07-22
 - AC-2: `.claude/memory.md` exists, is populated with current architecture/feature/decision state, committed to main
 - AC-3: `.claude/actions.md` exists, is populated with open/closed actions, committed to main
 - AC-4: On next session start, reading memory.md surfaces what was last in progress without needing to re-read the full conversation
-**Status:** in-progress
+**Status:** in-progress — PR #2 open, awaiting CI + merge
 
 ---
 
