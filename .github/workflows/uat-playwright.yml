@@ -88,6 +88,7 @@ jobs:
           IMAGE_URL: ${{ steps.upload.outputs.image_url }}
           LIBRARY_NAME: ${{ github.event.inputs.library_name }}
         run: |
+          npm install playwright
           cat > /tmp/uat.js << 'PLAYWRIGHT_SCRIPT'
           const { chromium } = require('playwright')
           const APP_URL = process.env.APP_URL
