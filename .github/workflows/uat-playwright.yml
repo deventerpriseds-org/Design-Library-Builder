@@ -112,6 +112,7 @@ jobs:
             const page = await context.newPage()
             const consoleErrors = []
             page.on('console', msg => { if (msg.type() === 'error') consoleErrors.push(msg.text()) })
+            page.on('response', resp => { if (resp.status() >= 500) consoleErrors.push(`HTTP ${resp.status()}: ${resp.url()}`) })
 
             // TC-1: Auth bypass
             console.log('── TC-1: Auth bypass ──')
