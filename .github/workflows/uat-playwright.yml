@@ -23,48 +23,53 @@ jobs:
 
       - name: Generate MedSync-representative test image
         run: |
-          # Generates a 800x600 PNG with MedSync's actual color palette:
-          #   Near-black nav (#1C1C1C), warm cream bg (#F5F0E8), white cards, amber accent (#F5A623)
-          python3 -c "
-          import struct, zlib
+          # MedSync palette: near-black nav #1C1C1C, cream bg #F5F0E8, white cards, amber #F5A623
+          python3 << 'PYEOF'
+          import struct, zlib, array
 
           def chunk(name, data):
               crc = zlib.crc32(name + data) & 0xffffffff
               return struct.pack('>I', len(data)) + name + data + struct.pack('>I', crc)
 
-          w, h = 800, 600
-          raw = b''
+          w, h = 400, 300  # smaller = faster, still enough detail for color extraction
+          NAV   = (28,  28,  28)
+          CREAM = (245, 240, 232)
+          WHITE = (255, 255, 255)
+          AMBER = (245, 166, 35)
+
+          buf = bytearray()
           for y in range(h):
-              raw += b'\x00'
+              buf.append(0)  # PNG filter byte
               for x in range(w):
-                  if y < 56:                               # top nav — near black (#1C1C1C)
-                      raw += bytes([28, 28, 28])
-                  elif x < 220 and y >= 56:               # sidebar — warm cream (#F5F0E8)
-                      raw += bytes([245, 240, 232])
-                  elif 240 < x < 520 and 76 < y < 196:   # card 1 — white
-                      raw += bytes([255, 255, 255])
-                  elif 240 < x < 500 and 80 < y < 90:    # amber header bar (#F5A623)
-                      raw += bytes([245, 166, 35])
-                  elif 240 < x < 520 and 216 < y < 336:  # card 2 — white
-                      raw += bytes([255, 255, 255])
-                  elif 540 < x < 780 and 76 < y < 336:   # right panel — white
-                      raw += bytes([255, 255, 255])
-                  elif 240 < x < 380 and 356 < y < 436:  # amber stat block (#F5A623)
-                      raw += bytes([245, 166, 35])
-                  elif 400 < x < 520 and 356 < y < 436:  # secondary stat — warm cream
-                      raw += bytes([245, 240, 232])
-                  else:                                   # page bg — warm cream (#F5F0E8)
-                      raw += bytes([245, 240, 232])
+                  if y < 28:
+                      px = NAV
+                  elif x < 110 and y >= 28:
+                      px = CREAM
+                  elif 120 < x < 260 and 38 < y < 98:
+                      px = WHITE
+                  elif 120 < x < 250 and 40 < y < 45:
+                      px = AMBER
+                  elif 120 < x < 260 and 108 < y < 168:
+                      px = WHITE
+                  elif 270 < x < 390 and 38 < y < 168:
+                      px = WHITE
+                  elif 120 < x < 190 and 178 < y < 218:
+                      px = AMBER
+                  else:
+                      px = CREAM
+                  buf.extend(px)
+
+          raw = bytes(buf)
           img_data = zlib.compress(raw)
           ihdr = struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)
-          png = b'\x89PNG\r\n\x1a\n'
+          png  = b'\x89PNG\r\n\x1a\n'
           png += chunk(b'IHDR', ihdr)
           png += chunk(b'IDAT', img_data)
           png += chunk(b'IEND', b'')
           with open('/tmp/medsync-uat.png', 'wb') as f:
               f.write(png)
-          print('OK - MedSync-representative image generated: amber #F5A623, cream #F5F0E8, nav #1C1C1C')
-          "
+          print('OK - amber #F5A623, cream #F5F0E8, nav #1C1C1C, size', len(png), 'bytes')
+          PYEOF
 
       - name: Upload test image to blob
         id: upload
