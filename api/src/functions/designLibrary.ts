@@ -160,17 +160,17 @@ function buildBaseline(name: string, primaryColor: string, fontFamily: string) {
       ]
     },
     components: [
-      { name: 'Button', tier: 'atom', category: 'Actions', variants: ['Primary', 'Secondary', 'Ghost', 'Destructive', 'Link'], states: ['Default', 'Hover', 'Pressed', 'Disabled', 'Loading'], variantProperties: { Type: ['Primary', 'Secondary', 'Ghost', 'Destructive', 'Link'], Size: ['SM', 'MD', 'LG'] }, componentProperties: { Label: { type: 'TEXT', default: 'Button' }, HasIcon: { type: 'BOOLEAN', default: 'false' } }, tokenBindings: ['action/primary', 'action/secondary'], styleBindings: ['Label'], variableBindings: { fill: 'action/primary', radius: 'size/base' } },
-      { name: 'Input', tier: 'atom', category: 'Forms', variants: ['Default', 'Error', 'Success', 'Disabled'], states: ['Empty', 'Focused', 'Filled', 'Disabled'], variantProperties: { State: ['Default', 'Error', 'Success', 'Disabled'], Type: ['Text', 'Password', 'Search', 'Number'] }, componentProperties: { Placeholder: { type: 'TEXT', default: 'Enter value…' }, HasLabel: { type: 'BOOLEAN', default: 'true' } }, tokenBindings: ['border/default', 'border/focus'], styleBindings: ['Body'], variableBindings: { stroke: 'border/default' } },
-      { name: 'Checkbox', tier: 'atom', category: 'Forms', variants: ['Unchecked', 'Checked', 'Indeterminate', 'Disabled'], states: ['Default', 'Hover', 'Focused', 'Disabled'], variantProperties: { State: ['Unchecked', 'Checked', 'Indeterminate', 'Disabled'] }, componentProperties: { Label: { type: 'TEXT', default: 'Label' } }, tokenBindings: ['action/primary', 'border/default'], styleBindings: ['Label'], variableBindings: { fill: 'action/primary' } },
-      { name: 'Badge', tier: 'atom', category: 'Status', variants: ['Brand', 'Success', 'Warning', 'Error', 'Info', 'Neutral', 'Outline'], states: ['Default'], variantProperties: { Variant: ['Brand', 'Success', 'Warning', 'Error', 'Info', 'Neutral'] }, componentProperties: { Label: { type: 'TEXT', default: 'Badge' } }, tokenBindings: ['status/success', 'status/error', 'status/warning'], styleBindings: ['Label'], variableBindings: {} },
-      { name: 'Avatar', tier: 'atom', category: 'Identity', variants: ['Image', 'Initials', 'Icon', 'Placeholder'], states: ['Default', 'WithStatus'], variantProperties: { Type: ['Image', 'Initials', 'Icon'], Size: ['XS', 'SM', 'MD', 'LG', 'XL'] }, componentProperties: { Initials: { type: 'TEXT', default: 'AB' } }, tokenBindings: ['action/primary', 'surface/card'], styleBindings: ['Label'], variableBindings: {} },
-      { name: 'Card', tier: 'molecule', category: 'Layout', variants: ['Basic', 'Elevated', 'Outlined', 'Interactive'], states: ['Default', 'Hover'], variantProperties: { Variant: ['Basic', 'Elevated', 'Outlined', 'Interactive'] }, componentProperties: { HasHeader: { type: 'BOOLEAN', default: 'true' }, HasFooter: { type: 'BOOLEAN', default: 'false' } }, tokenBindings: ['surface/card', 'border/default'], styleBindings: ['H4', 'Body'], variableBindings: { fill: 'surface/card', stroke: 'border/default' } },
-      { name: 'Alert', tier: 'molecule', category: 'Feedback', variants: ['Info', 'Success', 'Warning', 'Error'], states: ['Default', 'Dismissible'], variantProperties: { Type: ['Info', 'Success', 'Warning', 'Error'] }, componentProperties: { Title: { type: 'TEXT', default: 'Alert title' }, Message: { type: 'TEXT', default: 'Alert message' }, Dismissible: { type: 'BOOLEAN', default: 'false' } }, tokenBindings: ['status/success', 'status/error', 'status/warning', 'status/info'], styleBindings: ['Label', 'Body SM'], variableBindings: {} },
-      { name: 'Table', tier: 'organism', category: 'Data', variants: ['Default', 'Striped', 'Compact'], states: ['Default', 'Loading', 'Empty'], variantProperties: { Density: ['Default', 'Compact', 'Comfortable'] }, componentProperties: { HasSelection: { type: 'BOOLEAN', default: 'false' }, HasPagination: { type: 'BOOLEAN', default: 'true' } }, tokenBindings: ['border/default', 'surface/card', 'text/primary'], styleBindings: ['Body', 'Label'], variableBindings: { fill: 'surface/card', stroke: 'border/default' } },
-      { name: 'Modal', tier: 'organism', category: 'Overlays', variants: ['SM', 'MD', 'LG', 'Full'], states: ['Open', 'Closing'], variantProperties: { Size: ['SM', 'MD', 'LG', 'Full'] }, componentProperties: { Title: { type: 'TEXT', default: 'Modal title' }, HasClose: { type: 'BOOLEAN', default: 'true' } }, tokenBindings: ['surface/card', 'surface/overlay', 'border/default'], styleBindings: ['H3', 'Body'], variableBindings: { fill: 'surface/card' } },
-      { name: 'Navigation Bar', tier: 'organism', category: 'Navigation', variants: ['Default', 'Compact'], states: ['Default', 'Scrolled'], variantProperties: { Variant: ['Default', 'Compact'] }, componentProperties: { HasLogo: { type: 'BOOLEAN', default: 'true' }, HasSearch: { type: 'BOOLEAN', default: 'false' } }, tokenBindings: ['surface/card', 'text/primary', 'border/default'], styleBindings: ['Label', 'Body'], variableBindings: { fill: 'surface/card', stroke: 'border/default' } },
-      { name: 'Sidebar', tier: 'organism', category: 'Navigation', variants: ['Default', 'Collapsed', 'Overlay'], states: ['Default', 'Collapsed'], variantProperties: { State: ['Default', 'Collapsed', 'Overlay'] }, componentProperties: { HasLogo: { type: 'BOOLEAN', default: 'true' } }, tokenBindings: ['surface/card', 'action/primary', 'text/primary'], styleBindings: ['Label', 'Body SM'], variableBindings: { fill: 'surface/card' } },
+      { name: 'Button', description: 'Primary action trigger — filled, outlined, and ghost variants for hierarchy across forms, dialogs, and toolbars.', tier: 'atom', category: 'Actions', variants: ['Primary', 'Secondary', 'Ghost', 'Destructive', 'Link'], states: ['Default', 'Hover', 'Pressed', 'Disabled', 'Loading'], variantProperties: { Type: ['Primary', 'Secondary', 'Ghost', 'Destructive', 'Link'], Size: ['SM', 'MD', 'LG'] }, componentProperties: { Label: { type: 'TEXT', default: 'Button' }, HasIcon: { type: 'BOOLEAN', default: 'false' } }, tokenBindings: ['action/primary', 'action/secondary'], styleBindings: ['Label'], variableBindings: { fill: 'action/primary', radius: 'size/base' } },
+      { name: 'Input', description: 'Text entry field with label, placeholder, and validation states — used in forms, search bars, and settings panels.', tier: 'atom', category: 'Forms', variants: ['Default', 'Error', 'Success', 'Disabled'], states: ['Empty', 'Focused', 'Filled', 'Disabled'], variantProperties: { State: ['Default', 'Error', 'Success', 'Disabled'], Type: ['Text', 'Password', 'Search', 'Number'] }, componentProperties: { Placeholder: { type: 'TEXT', default: 'Enter value…' }, HasLabel: { type: 'BOOLEAN', default: 'true' } }, tokenBindings: ['border/default', 'border/focus'], styleBindings: ['Body'], variableBindings: { stroke: 'border/default' } },
+      { name: 'Checkbox', description: 'Binary selection control — checked, unchecked, and indeterminate states with accessible label.', tier: 'atom', category: 'Forms', variants: ['Unchecked', 'Checked', 'Indeterminate', 'Disabled'], states: ['Default', 'Hover', 'Focused', 'Disabled'], variantProperties: { State: ['Unchecked', 'Checked', 'Indeterminate', 'Disabled'] }, componentProperties: { Label: { type: 'TEXT', default: 'Label' } }, tokenBindings: ['action/primary', 'border/default'], styleBindings: ['Label'], variableBindings: { fill: 'action/primary' } },
+      { name: 'Badge', description: 'Compact status or category label — pill-shaped, color-coded by semantic meaning (success, warning, error, brand).', tier: 'atom', category: 'Status', variants: ['Brand', 'Success', 'Warning', 'Error', 'Info', 'Neutral', 'Outline'], states: ['Default'], variantProperties: { Variant: ['Brand', 'Success', 'Warning', 'Error', 'Info', 'Neutral'] }, componentProperties: { Label: { type: 'TEXT', default: 'Badge' } }, tokenBindings: ['status/success', 'status/error', 'status/warning'], styleBindings: ['Label'], variableBindings: {} },
+      { name: 'Avatar', description: 'User identity representation — supports profile image, initials fallback, and presence status indicator.', tier: 'atom', category: 'Identity', variants: ['Image', 'Initials', 'Icon', 'Placeholder'], states: ['Default', 'WithStatus'], variantProperties: { Type: ['Image', 'Initials', 'Icon'], Size: ['XS', 'SM', 'MD', 'LG', 'XL'] }, componentProperties: { Initials: { type: 'TEXT', default: 'AB' } }, tokenBindings: ['action/primary', 'surface/card'], styleBindings: ['Label'], variableBindings: {} },
+      { name: 'Card', description: 'Contained surface for grouping related content — supports header, body, and footer zones with optional elevation.', tier: 'molecule', category: 'Layout', variants: ['Basic', 'Elevated', 'Outlined', 'Interactive'], states: ['Default', 'Hover'], variantProperties: { Variant: ['Basic', 'Elevated', 'Outlined', 'Interactive'] }, componentProperties: { HasHeader: { type: 'BOOLEAN', default: 'true' }, HasFooter: { type: 'BOOLEAN', default: 'false' } }, tokenBindings: ['surface/card', 'border/default'], styleBindings: ['H4', 'Body'], variableBindings: { fill: 'surface/card', stroke: 'border/default' } },
+      { name: 'Alert', description: 'Inline feedback banner — four semantic types (info, success, warning, error) with optional dismiss action.', tier: 'molecule', category: 'Feedback', variants: ['Info', 'Success', 'Warning', 'Error'], states: ['Default', 'Dismissible'], variantProperties: { Type: ['Info', 'Success', 'Warning', 'Error'] }, componentProperties: { Title: { type: 'TEXT', default: 'Alert title' }, Message: { type: 'TEXT', default: 'Alert message' }, Dismissible: { type: 'BOOLEAN', default: 'false' } }, tokenBindings: ['status/success', 'status/error', 'status/warning', 'status/info'], styleBindings: ['Label', 'Body SM'], variableBindings: {} },
+      { name: 'Table', description: 'Structured data grid with sortable columns, row selection, and pagination — used for lists, reports, and records.', tier: 'organism', category: 'Data', variants: ['Default', 'Striped', 'Compact'], states: ['Default', 'Loading', 'Empty'], variantProperties: { Density: ['Default', 'Compact', 'Comfortable'] }, componentProperties: { HasSelection: { type: 'BOOLEAN', default: 'false' }, HasPagination: { type: 'BOOLEAN', default: 'true' } }, tokenBindings: ['border/default', 'surface/card', 'text/primary'], styleBindings: ['Body', 'Label'], variableBindings: { fill: 'surface/card', stroke: 'border/default' } },
+      { name: 'Modal', description: 'Focused overlay dialog — blocks the background, contains a title, body content, and action buttons for confirmations and forms.', tier: 'organism', category: 'Overlays', variants: ['SM', 'MD', 'LG', 'Full'], states: ['Open', 'Closing'], variantProperties: { Size: ['SM', 'MD', 'LG', 'Full'] }, componentProperties: { Title: { type: 'TEXT', default: 'Modal title' }, HasClose: { type: 'BOOLEAN', default: 'true' } }, tokenBindings: ['surface/card', 'surface/overlay', 'border/default'], styleBindings: ['H3', 'Body'], variableBindings: { fill: 'surface/card' } },
+      { name: 'Navigation Bar', description: 'Top-edge app bar with logo, primary nav links, and user account controls — sticky on scroll.', tier: 'organism', category: 'Navigation', variants: ['Default', 'Compact'], states: ['Default', 'Scrolled'], variantProperties: { Variant: ['Default', 'Compact'] }, componentProperties: { HasLogo: { type: 'BOOLEAN', default: 'true' }, HasSearch: { type: 'BOOLEAN', default: 'false' } }, tokenBindings: ['surface/card', 'text/primary', 'border/default'], styleBindings: ['Label', 'Body'], variableBindings: { fill: 'surface/card', stroke: 'border/default' } },
+      { name: 'Sidebar', description: 'Left-rail navigation panel with collapsible sections, active state highlighting, and optional overlay mode on mobile.', tier: 'organism', category: 'Navigation', variants: ['Default', 'Collapsed', 'Overlay'], states: ['Default', 'Collapsed'], variantProperties: { State: ['Default', 'Collapsed', 'Overlay'] }, componentProperties: { HasLogo: { type: 'BOOLEAN', default: 'true' } }, tokenBindings: ['surface/card', 'action/primary', 'text/primary'], styleBindings: ['Label', 'Body SM'], variableBindings: { fill: 'surface/card' } },
     ],
     patterns: [
       { name: 'Auth — Sign In', description: 'Email + password login form with social auth options', components: ['Input', 'Button', 'Card'], layout: 'Centered single-column card, max-width 420px' },
@@ -181,6 +181,68 @@ function buildBaseline(name: string, primaryColor: string, fontFamily: string) {
   }
 }
 
+function hexToHsl(hex: string): [number, number, number] {
+  const r = parseInt(hex.slice(1, 3), 16) / 255
+  const g = parseInt(hex.slice(3, 5), 16) / 255
+  const b = parseInt(hex.slice(5, 7), 16) / 255
+  const max = Math.max(r, g, b), min = Math.min(r, g, b)
+  let h = 0, s = 0
+  const l = (max + min) / 2
+  if (max !== min) {
+    const d = max - min
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+    switch (max) {
+      case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break
+      case g: h = ((b - r) / d + 2) / 6; break
+      case b: h = ((r - g) / d + 4) / 6; break
+    }
+  }
+  return [Math.round(h * 360), Math.round(s * 100), Math.round(l * 100)]
+}
+
+function hslToHex(h: number, s: number, l: number): string {
+  const hh = h / 360, ss = s / 100, ll = l / 100
+  const q = ll < 0.5 ? ll * (1 + ss) : ll + ss - ll * ss
+  const p = 2 * ll - q
+  const toC = (t: number) => {
+    if (t < 0) t += 1; if (t > 1) t -= 1
+    if (t < 1/6) return p + (q - p) * 6 * t
+    if (t < 1/2) return q
+    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6
+    return p
+  }
+  if (ss === 0) { const v = Math.round(ll * 255); return `#${v.toString(16).padStart(2,'0').repeat(3)}` }
+  const rr = Math.round(toC(hh + 1/3) * 255)
+  const gg = Math.round(toC(hh) * 255)
+  const bb = Math.round(toC(hh - 1/3) * 255)
+  return `#${rr.toString(16).padStart(2,'0')}${gg.toString(16).padStart(2,'0')}${bb.toString(16).padStart(2,'0')}`
+}
+
+// Derive a 9-step brand ramp (50–900) from a single observed primary hex.
+// The primary is placed at brand-500. Lighter steps raise lightness toward 97%,
+// darker steps lower it toward 15%, with saturation gently increased for mid tones.
+function derivePrimitives(primary: string): any[] {
+  if (!primary || !/^#[0-9a-fA-F]{6}$/.test(primary)) return []
+  const [h, s] = hexToHsl(primary)
+  const stops = [
+    { name: 'brand-50',  l: 97, s: Math.max(s - 20, 10) },
+    { name: 'brand-100', l: 93, s: Math.max(s - 15, 15) },
+    { name: 'brand-200', l: 85, s: Math.max(s - 10, 20) },
+    { name: 'brand-300', l: 74, s: Math.max(s - 5,  30) },
+    { name: 'brand-400', l: 62, s },
+    { name: 'brand-500', l: 0,  s, hex: primary },  // anchor
+    { name: 'brand-600', l: 40, s: Math.min(s + 5, 95) },
+    { name: 'brand-700', l: 32, s: Math.min(s + 8, 95) },
+    { name: 'brand-800', l: 24, s: Math.min(s + 10, 95) },
+    { name: 'brand-900', l: 15, s: Math.min(s + 12, 95) },
+  ]
+  return stops.map(stop => ({
+    name: stop.name,
+    value: stop.hex || hslToHex(h, stop.s, stop.l),
+    type: 'color', resolvedType: 'COLOR', scopes: ['FRAME_FILL'], hiddenFromPublishing: true,
+  }))
+}
+
 function mergeWithBaseline(baseline: any, diff: any): any {
   if (!diff || typeof diff !== 'object') return baseline
   const result = JSON.parse(JSON.stringify(baseline))
@@ -188,11 +250,16 @@ function mergeWithBaseline(baseline: any, diff: any): any {
   // Merge meta fields (all observed values win)
   if (diff.meta) Object.assign(result.meta, diff.meta)
 
-  // Override brand primitives with observed colors
+  // Override brand primitives with observed colors.
+  // If the AI returned explicit primitives, use them directly.
+  // If not, but a primaryColor was observed, derive a ramp from it so the
+  // baseline indigo shades are never left standing when we know the real primary.
   if (diff.primitives?.length) {
     result.variables.collections.Primitives = diff.primitives.map((p: any) => ({
       ...p, type: 'color', resolvedType: 'COLOR', scopes: ['FRAME_FILL'], hiddenFromPublishing: true,
     }))
+  } else if (diff.meta?.primaryColor) {
+    result.variables.collections.Primitives = derivePrimitives(diff.meta.primaryColor)
   }
 
   // Merge semantic color overrides
