@@ -172,20 +172,31 @@ jobs:
               await extractBtn.click()
               report('TC-5 Extract button clicked', 'PASS', `Clicked: "${btnLabel.trim()}"`)
 
-              // TC-6: Wait for results
+              // TC-6: Wait for extraction to complete (Review screen appears)
               console.log('── TC-6: Wait for extraction ──')
               try {
                 await page.waitForFunction(() => {
                   const body = document.body.textContent
-                  return body.includes('Button') && body.includes('components') || body.includes('Component') && body.includes('variant')
+                  return body.includes('Extraction Complete') || body.includes('Review') && body.includes('Export')
                 }, { timeout: 90000 })
-                report('TC-6 Extraction completes', 'PASS', 'Component names visible in page')
+                const reviewText = await page.textContent('body')
+                report('TC-6 Extraction completes', 'PASS', `Review screen: ${reviewText.slice(0, 150)}`)
               } catch {
                 const nowText = await page.textContent('body')
                 report('TC-6 Extraction completes', 'FAIL', `Timed out. Body: ${nowText.slice(0, 300)}`)
                 await browser.close()
                 printSummary()
                 process.exit(1)
+              }
+
+              // Navigate to Showcase for TC-7/8/9
+              const showcaseBtn = page.locator('button, a').filter({ hasText: /showcase|preview/i }).first()
+              if (await showcaseBtn.count() > 0) {
+                await showcaseBtn.click()
+                await page.waitForTimeout(2000)
+              } else {
+                await page.goto(APP_URL + '/#/showcase', { waitUntil: 'networkidle' }).catch(() => {})
+                await page.waitForTimeout(1000)
               }
             }
 
