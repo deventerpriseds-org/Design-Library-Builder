@@ -176,8 +176,7 @@ jobs:
               console.log('── TC-6: Wait for extraction ──')
               try {
                 await page.waitForFunction(() => {
-                  const body = document.body.textContent
-                  return body.includes('Extraction Complete') || body.includes('Review') && body.includes('Export')
+                  return document.body.textContent.includes('Extraction Complete')
                 }, { timeout: 90000 })
                 const reviewText = await page.textContent('body')
                 report('TC-6 Extraction completes', 'PASS', `Review screen: ${reviewText.slice(0, 150)}`)
