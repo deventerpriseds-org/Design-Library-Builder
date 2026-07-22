@@ -649,11 +649,14 @@ async function extractAsyncHandler(req: HttpRequest, context: InvocationContext)
   await table.upsertEntity({ partitionKey: 'job', rowKey: jobId, status: 'pending', createdAt: new Date().toISOString() })
 
   // Enqueue job params — the queue-triggered worker does the actual Anthropic call
-  // This avoids fire-and-forget IIFEs that Azure terminates after HTTP response is sent
+  // Send plain JSON string (no base64) — Azure Functions v4 Node.js queue trigger passes raw message text
+  // Exclude inlineImages (base64 dataUrls) from the queue message — they may exceed the 64KB queue limit;
+  // the worker can only process blob URLs anyway
   const queueSvc = QueueServiceClient.fromConnectionString(CONN)
   const queue = queueSvc.getQueueClient('extraction-jobs')
   await queue.createIfNotExists()
-  const msg = Buffer.from(JSON.stringify({ jobId, ...body })).toString('base64')
+  const { images: _drop, ...bodyWithoutImages } = body
+  const msg = JSON.stringify({ jobId, ...bodyWithoutImages })
   await queue.sendMessage(msg)
 
   return { status: 202, headers: JSON_H, jsonBody: { jobId } }
@@ -692,7 +695,8 @@ async function extractJobHandler(req: HttpRequest, context: InvocationContext): 
 
 // ── Queue worker: processes extraction-jobs queue messages ────────────────────
 async function extractionWorker(queueItem: unknown, context: InvocationContext): Promise<void> {
-  const raw = Buffer.from(queueItem as string, 'base64').toString('utf8')
+  // Messages are plain JSON strings (no base64 encoding)
+  const raw = typeof queueItem === 'string' ? queueItem : JSON.stringify(queueItem)
   const parsed = JSON.parse(raw)
   const { jobId, name, primaryColor, images = [], description = '' } = parsed
   // accept both `urls` and `imageUrls` (the /upload endpoint returns a URL stored under imageUrls by some callers)
@@ -726,7 +730,7 @@ async function extractionWorker(queueItem: unknown, context: InvocationContext):
     const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': CLAUDE_API_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 32000, system: SYSTEM_PROMPT, messages: [{ role: 'user', content: contentBlocks }], stream: true }),
+      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 4096, system: SYSTEM_PROMPT, messages: [{ role: 'user', content: contentBlocks }], stream: true }),
     })
     if (!anthropicRes.ok) {
       const errText = await anthropicRes.text()
@@ -736,17 +740,21 @@ async function extractionWorker(queueItem: unknown, context: InvocationContext):
     let jsonBuf = ''
     const reader = anthropicRes.body!.getReader()
     const decoder = new TextDecoder()
+    let sseBuf = ''
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
-      for (const line of decoder.decode(value, { stream: true }).split('\n')) {
+      sseBuf += decoder.decode(value, { stream: true })
+      const lines = sseBuf.split('\n')
+      sseBuf = lines.pop()!
+      for (const line of lines) {
         if (!line.startsWith('data: ')) continue
         const data = line.slice(6).trim()
         if (data === '[DONE]') continue
         try {
           const ev = JSON.parse(data)
           if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta') jsonBuf += ev.delta.text
-        } catch { /* skip */ }
+        } catch { /* skip partial */ }
       }
     }
     context.log(`extractionWorker: received ${jsonBuf.length} chars from Anthropic`)
