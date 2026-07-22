@@ -786,7 +786,30 @@ function StoryCard({ component, S }) {
       <div style={{ padding: '14px 16px', background: S.bg, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 56 }}>
         <ComponentPreview component={component} variant={active} S={S} />
       </div>
-      {component.description && <div style={{ fontSize: 12, color: S.text2, marginTop: 8 }}>{component.description}</div>}
+      {(() => {
+        // Fall back to a type-based description when extraction returned none
+        const TYPE_DESC = {
+          button: 'Primary action trigger — filled, outlined, and ghost variants for hierarchy across forms, dialogs, and toolbars.',
+          input: 'Text entry field with label, placeholder, and validation states — used in forms, search bars, and settings panels.',
+          checkbox: 'Binary selection control — checked, unchecked, and indeterminate states with accessible label.',
+          badge: 'Compact status or category label — pill-shaped, color-coded by semantic meaning.',
+          avatar: 'User identity representation — supports profile image, initials fallback, and presence status indicator.',
+          card: 'Contained surface for grouping related content — supports header, body, and footer zones with optional elevation.',
+          alert: 'Inline feedback banner — four semantic types (info, success, warning, error) with optional dismiss action.',
+          table: 'Structured data grid with sortable columns, row selection, and pagination.',
+          modal: 'Focused overlay dialog — blocks the background for confirmations and forms.',
+          nav: 'App navigation panel with logo, primary links, and user account controls.',
+          select: 'Dropdown selector for choosing one option from a list.',
+          toggle: 'Binary on/off switch with animated transition.',
+          radio: 'Single-selection control within a group of mutually exclusive options.',
+          progress: 'Loading indicator showing determinate or indeterminate progress.',
+          tooltip: 'Contextual hint shown on hover or focus for additional information.',
+          accordion: 'Expandable section for revealing or hiding nested content.',
+          tabs: 'Tabbed interface for switching between related content panels.',
+        }
+        const desc = component.description || TYPE_DESC[detectComponentType(component)] || ''
+        return desc ? <div style={{ fontSize: 12, color: S.text2, marginTop: 8 }}>{desc}</div> : null
+      })()}
     </div>
   )
 }
