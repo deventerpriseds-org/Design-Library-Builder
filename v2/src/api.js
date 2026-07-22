@@ -19,37 +19,57 @@ function authHeaders() {
   return {}
 }
 
-// POST /design-library/extract?sync=1 — waits for the full Anthropic response and returns single JSON.
-// Previously used streaming NDJSON which caused "Failed to fetch" in browsers for larger images.
-// The sync endpoint returns a plain application/json response; no streaming connection to drop.
+// POST /design-library/extract — streams NDJSON progress events, returns design system when done.
+// The streaming connection stays alive (progress events flow every few seconds), preventing
+// network proxy timeouts that killed the previous sync (?sync=1) approach.
+// The original streaming approach failed only because max_tokens was 4096 (now 16000).
 export async function extractDesign({ name, primaryColor, images, urls, description }, onChunk) {
   const body = { name, primaryColor, images, urls, description }
   onChunk?.({ type: 'progress', category: 'extracting', message: 'Analysing design…', done: false })
 
-  // Emit elapsed-time ticks while the sync request is in flight
-  let elapsed = 0
-  const ticker = setInterval(() => {
-    elapsed += 4
-    onChunk?.({ type: 'progress', category: 'extracting', message: `Analysing design… ${elapsed}s`, done: false })
-  }, 4000)
+  const res = await fetch(`${API_BASE}/design-library/extract`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(body),
+  })
 
-  try {
-    const res = await fetch(`${API_BASE}/design-library/extract?sync=1`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify(body),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error(err?.error || `Extract failed: ${res.status}`)
-    }
-    const data = await res.json()
-    if (!data?.data) throw new Error('Extraction returned no result')
-    onChunk?.({ type: 'progress', category: 'finalizing', message: 'Extraction complete', done: true })
-    return data.data
-  } finally {
-    clearInterval(ticker)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err?.error || `Extract failed: ${res.status}`)
   }
+
+  // Read NDJSON stream — each line is a JSON event
+  const reader = res.body.getReader()
+  const dec = new TextDecoder()
+  let buf = ''
+  let finalResult = null
+  let lastError = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += dec.decode(value, { stream: true })
+    const lines = buf.split('\n')
+    buf = lines.pop() // keep incomplete line in buffer
+    for (const line of lines) {
+      if (!line.trim()) continue
+      try {
+        const evt = JSON.parse(line)
+        if (evt.type === 'result') {
+          finalResult = evt.data
+        } else if (evt.type === 'progress') {
+          onChunk?.(evt)
+          if (evt.category === 'error') lastError = evt.message || lastError
+        }
+      } catch { /* partial line */ }
+    }
+  }
+
+  if (!finalResult) {
+    throw new Error(lastError || 'Extraction returned no result — check network connection and try again')
+  }
+  onChunk?.({ type: 'progress', category: 'finalizing', message: 'Extraction complete', done: true })
+  return finalResult
 }
 
 // GET /design-library/saved  — list user's saved design systems
