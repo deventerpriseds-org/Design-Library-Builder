@@ -189,15 +189,9 @@ jobs:
                 process.exit(1)
               }
 
-              // Navigate to Showcase for TC-7/8/9
-              const showcaseBtn = page.locator('button, a').filter({ hasText: /showcase|preview/i }).first()
-              if (await showcaseBtn.count() > 0) {
-                await showcaseBtn.click()
-                await page.waitForTimeout(2000)
-              } else {
-                await page.goto(APP_URL + '/#/showcase', { waitUntil: 'networkidle' }).catch(() => {})
-                await page.waitForTimeout(1000)
-              }
+              // Navigate to Showcase for TC-7/8/9 — use hash change (NOT page.goto which clears React state)
+              await page.evaluate(() => { window.location.hash = '/showcase' })
+              await page.waitForTimeout(2000)
             }
 
             // TC-7: Component descriptions
@@ -251,14 +245,14 @@ jobs:
               }
             }
 
-            // TC-10: Libraries tab
+            // TC-10: Libraries tab — hash change preserves state; re-inject auth in case it lapsed
             console.log('── TC-10: Libraries tab ──')
-            await page.goto(APP_URL + '/#/libraries', { waitUntil: 'networkidle' }).catch(() => {})
             await page.evaluate((token) => {
               localStorage.setItem('dlg_auth_user', JSON.stringify({ id: 'von.ellis@enterpriseds.io', email: 'von.ellis@enterpriseds.io', name: 'Von Ellis' }))
               localStorage.setItem('dlg_uat_bypass_token', token)
+              window.location.hash = '/libraries'
             }, UAT_TOKEN)
-            await page.waitForTimeout(2000)
+            await page.waitForTimeout(3000)
             const libText = await page.textContent('body')
             if (libText.includes('No libraries') || libText.includes('no libraries')) {
               report('TC-10 Libraries tab', 'FAIL', 'Empty state — no libraries saved')
