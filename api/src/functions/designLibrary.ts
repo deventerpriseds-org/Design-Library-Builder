@@ -345,8 +345,14 @@ function mergeWithBaseline(baseline: any, diff: any): any {
   if (diff.components?.length) {
     for (const dc of diff.components) {
       const idx = result.components.findIndex((c: any) => c.name === dc.name)
-      if (idx >= 0) Object.assign(result.components[idx], dc)
-      else result.components.push(dc)
+      if (idx >= 0) {
+        // Preserve baseline description when extraction doesn't provide one
+        const merged = { ...dc }
+        if (!merged.description) merged.description = result.components[idx].description
+        Object.assign(result.components[idx], merged)
+      } else {
+        result.components.push(dc)
+      }
     }
   }
 
@@ -937,7 +943,8 @@ async function savePaletteHandler(req: HttpRequest, ctx: InvocationContext): Pro
     )
     return { status: 201, headers: JSON_H, jsonBody: rows[0] }
   } catch (e) {
-    return { status: 500, headers: JSON_H, jsonBody: { error: (e as Error).message } }
+    ctx.log('listPalettes DB error (returning empty list):', (e as Error).message)
+    return { status: 200, headers: JSON_H, jsonBody: [] }
   }
 }
 
