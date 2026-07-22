@@ -530,7 +530,7 @@ async function extractHandler(req: HttpRequest, context: InvocationContext): Pro
           },
           body: JSON.stringify({
             model: 'claude-sonnet-4-6',
-            max_tokens: 4096,
+            max_tokens: 16000,
             system: SYSTEM_PROMPT,
             messages: [{ role: 'user', content: contentBlocks }],
             stream: true,
@@ -604,15 +604,19 @@ async function extractHandler(req: HttpRequest, context: InvocationContext): Pro
   if (syncMode) {
     return new Promise((resolve) => {
       let finalResult: any = null
+      let lastError: string = ''
       const reader = (stream as any).getReader()
       const dec = new TextDecoder()
       let buf = ''
       function pump() {
         reader.read().then(({ done, value }: { done: boolean; value?: Uint8Array }) => {
           if (done) {
-            resolve(finalResult
-              ? { status: 200, headers: JSON_H, jsonBody: { type: 'result', data: finalResult } }
-              : { status: 500, headers: JSON_H, jsonBody: { error: 'Extraction failed — no result produced' } })
+            if (finalResult) {
+              resolve({ status: 200, headers: JSON_H, jsonBody: { type: 'result', data: finalResult } })
+            } else {
+              const msg = lastError || 'Extraction produced no result — check API logs'
+              resolve({ status: 500, headers: JSON_H, jsonBody: { error: msg } })
+            }
             return
           }
           buf += dec.decode(value, { stream: true })
@@ -622,6 +626,7 @@ async function extractHandler(req: HttpRequest, context: InvocationContext): Pro
             try {
               const evt = JSON.parse(line)
               if (evt.type === 'result') finalResult = evt.data
+              if (evt.category === 'error') lastError = evt.message || lastError
             } catch { /* partial */ }
           }
           pump()
@@ -730,7 +735,7 @@ async function extractionWorker(queueItem: unknown, context: InvocationContext):
     const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': CLAUDE_API_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 4096, system: SYSTEM_PROMPT, messages: [{ role: 'user', content: contentBlocks }], stream: true }),
+      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 16000, system: SYSTEM_PROMPT, messages: [{ role: 'user', content: contentBlocks }], stream: true }),
     })
     if (!anthropicRes.ok) {
       const errText = await anthropicRes.text()
