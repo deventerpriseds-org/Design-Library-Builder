@@ -8,8 +8,15 @@ export function setSessionToken(t) {
   try { t ? sessionStorage.setItem('dlg_session_token', t) : sessionStorage.removeItem('dlg_session_token') } catch {}
 }
 
+const UAT_BYPASS_LS_KEY = 'dlg_uat_bypass_token'
+
 function authHeaders() {
-  return _sessionToken ? { Authorization: `Bearer ${_sessionToken}` } : {}
+  if (_sessionToken) return { Authorization: `Bearer ${_sessionToken}` }
+  try {
+    const uatToken = localStorage.getItem(UAT_BYPASS_LS_KEY)
+    if (uatToken) return { 'X-UAT-Token': uatToken }
+  } catch {}
+  return {}
 }
 
 // POST /design-library/extract?sync=1  — returns single JSON response, no streaming

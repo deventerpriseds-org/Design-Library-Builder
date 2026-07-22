@@ -19,6 +19,15 @@ export const providerReady = {
 export function loadUser() {
   try { return JSON.parse(localStorage.getItem(LS_KEY) || 'null') } catch { return null }
 }
+
+// UAT bypass — call from Playwright before page load; writes synthetic user + bypass token to localStorage
+// so the app boots authenticated as the UAT account without OAuth.
+export function setUATUser(bypassToken) {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify({ email: 'von.ellis@enterpriseds.io', name: 'von.ellis (UAT)', provider: 'uat' }))
+    localStorage.setItem('dlg_uat_bypass_token', bypassToken)
+  } catch {}
+}
 function saveUser(u) {
   try { u ? localStorage.setItem(LS_KEY, JSON.stringify(u)) : localStorage.removeItem(LS_KEY) } catch {}
 }
