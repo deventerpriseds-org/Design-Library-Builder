@@ -117,6 +117,13 @@ jobs:
             --resource-group $RESOURCE_GROUP \
             --src api-deploy.zip
 
+      - name: Restart function app (ensures queue triggers register)
+        run: |
+          az functionapp restart \
+            --name $FUNCTION_APP_NAME \
+            --resource-group $RESOURCE_GROUP
+          sleep 15
+
       - name: Print API URL
         run: |
           HOST=$(az functionapp show \
