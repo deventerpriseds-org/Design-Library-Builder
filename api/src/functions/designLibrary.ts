@@ -27,7 +27,7 @@ function pgPool(): Pool {
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-UAT-Token',
 }
 const JSON_H = { 'Content-Type': 'application/json', ...CORS }
 const STREAM_H = { 'Content-Type': 'application/x-ndjson', 'Transfer-Encoding': 'chunked', ...CORS }
@@ -1591,7 +1591,7 @@ app.http('figmaWebhook', {
 async function imageUploadHandler(req: HttpRequest): Promise<HttpResponseInit> {
   const cors = {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-UAT-Token',
   }
 
   if (req.method === 'OPTIONS') return { status: 204, headers: cors }
