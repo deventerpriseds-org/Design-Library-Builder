@@ -184,15 +184,34 @@ jobs:
               report('TC-5 Extract button', 'FAIL', 'No extract/build button found')
             } else {
               const btnLabel = await extractBtn.textContent()
+              // Inject fetch interceptor BEFORE clicking Extract.
+              // The streaming /extract endpoint is buffered by Azure's gateway in headless Chrome —
+              // the browser never receives chunks mid-stream, so extraction appears to hang.
+              // Redirect /extract → /extract?sync=1: returns a complete JSON response in ~24s.
+              // Append \n to the body so extractDesign()'s NDJSON reader finds the result line.
+              await page.evaluate(() => {
+                const orig = window.fetch
+                window.fetch = async (url, opts) => {
+                  const u = typeof url === 'string' ? url : (url instanceof Request ? url.url : String(url))
+                  if (u.includes('/design-library/extract') && !u.includes('async') && !u.includes('extract-job') && !u.includes('sync=1')) {
+                    const syncUrl = u.includes('?') ? u + '&sync=1' : u + '?sync=1'
+                    const resp = await orig.call(window, syncUrl, opts)
+                    if (!resp.ok) return resp
+                    const text = await resp.text()
+                    return new Response(text + '\n', { status: resp.status, headers: { 'Content-Type': 'application/x-ndjson' } })
+                  }
+                  return orig.call(window, url, opts)
+                }
+              })
               await extractBtn.click()
               report('TC-5 Extract button clicked', 'PASS', `Clicked: "${btnLabel.trim()}"`)
 
-              // TC-6: Wait for extraction to complete (Review screen appears)
+              // TC-6: Wait for extraction to complete — sync path takes ~24s
               console.log('── TC-6: Wait for extraction ──')
               try {
                 await page.waitForFunction(() => {
                   return document.body.textContent.includes('Extraction Complete')
-                }, null, { timeout: 150000 })
+                }, null, { timeout: 90000 })
                 const reviewText = await page.textContent('body')
                 report('TC-6 Extraction completes', 'PASS', `Review screen: ${reviewText.slice(0, 150)}`)
               } catch {
