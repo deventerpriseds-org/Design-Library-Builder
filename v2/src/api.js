@@ -19,47 +19,57 @@ function authHeaders() {
   return {}
 }
 
-// POST /design-library/extract-async → poll GET /design-library/extract-job/:id
-// The sync endpoint (?sync=1) holds the connection open until Anthropic finishes — real images
-// hit Azure's gateway timeout and the browser gets "Failed to fetch". The async path returns
-// a jobId immediately; the queue worker processes extraction independently of the HTTP connection.
+// POST /design-library/extract — streams NDJSON progress events, returns design system when done.
+// The streaming connection stays alive (progress events flow every few seconds), preventing
+// network proxy timeouts that killed the previous sync (?sync=1) approach.
+// The original streaming approach failed only because max_tokens was 4096 (now 16000).
 export async function extractDesign({ name, primaryColor, images, urls, description }, onChunk) {
   const body = { name, primaryColor, images, urls, description }
-  onChunk?.({ type: 'progress', category: 'extracting', message: 'Queuing extraction…', done: false })
+  onChunk?.({ type: 'progress', category: 'extracting', message: 'Analysing design…', done: false })
 
-  // Step 1: enqueue
-  const enqRes = await fetch(`${API_BASE}/design-library/extract-async`, {
+  const res = await fetch(`${API_BASE}/design-library/extract`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(body),
   })
-  if (!enqRes.ok) {
-    const err = await enqRes.json().catch(() => ({}))
-    throw new Error(err?.error || `Extract failed: ${enqRes.status}`)
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err?.error || `Extract failed: ${res.status}`)
   }
-  const { jobId } = await enqRes.json()
-  if (!jobId) throw new Error('No jobId returned from extract-async')
 
-  onChunk?.({ type: 'progress', category: 'extracting', message: 'Analysing design…', done: false })
+  // Read NDJSON stream — each line is a JSON event
+  const reader = res.body.getReader()
+  const dec = new TextDecoder()
+  let buf = ''
+  let finalResult = null
+  let lastError = ''
 
-  // Step 2: poll until done (up to 3 min, 4 s interval)
-  const MAX_POLLS = 45
-  for (let i = 0; i < MAX_POLLS; i++) {
-    await new Promise(r => setTimeout(r, 4000))
-    const pollRes = await fetch(`${API_BASE}/design-library/extract-job/${jobId}`, { headers: authHeaders() })
-    if (!pollRes.ok) continue
-    const poll = await pollRes.json()
-    if (poll.status === 'done') {
-      if (!poll.result) throw new Error('Job completed but no result returned')
-      onChunk?.({ type: 'progress', category: 'finalizing', message: 'Extraction complete', done: true })
-      return poll.result
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += dec.decode(value, { stream: true })
+    const lines = buf.split('\n')
+    buf = lines.pop() // keep incomplete line in buffer
+    for (const line of lines) {
+      if (!line.trim()) continue
+      try {
+        const evt = JSON.parse(line)
+        if (evt.type === 'result') {
+          finalResult = evt.data
+        } else if (evt.type === 'progress') {
+          onChunk?.(evt)
+          if (evt.category === 'error') lastError = evt.message || lastError
+        }
+      } catch { /* partial line */ }
     }
-    if (poll.status === 'error') throw new Error(poll.error || 'Extraction failed on the server')
-    // still pending — emit progress tick
-    const elapsed = (i + 1) * 4
-    onChunk?.({ type: 'progress', category: 'extracting', message: `Analysing design… ${elapsed}s`, done: false })
   }
-  throw new Error('Extraction timed out after 3 minutes — try a smaller image')
+
+  if (!finalResult) {
+    throw new Error(lastError || 'Extraction returned no result — check network connection and try again')
+  }
+  onChunk?.({ type: 'progress', category: 'finalizing', message: 'Extraction complete', done: true })
+  return finalResult
 }
 
 // GET /design-library/saved  — list user's saved design systems

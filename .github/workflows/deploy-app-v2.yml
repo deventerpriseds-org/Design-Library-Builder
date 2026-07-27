@@ -2,7 +2,7 @@ name: Deploy App v2 to Azure Static Web Apps
 
 on:
   push:
-    branches: [main, claude/figma-builder-app-copy-xeidub]
+    branches: [main, claude/figma-builder-app-copy-xeidub, claude/design-system-extraction-rijyng]
     paths:
       - 'v2/**'
       - '.github/workflows/deploy-app-v2.yml'
