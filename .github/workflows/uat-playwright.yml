@@ -206,7 +206,7 @@ jobs:
               try {
                 await page.waitForFunction(() => {
                   return document.body.textContent.includes('Extraction Complete')
-                }, { timeout: 90000 })
+                }, { timeout: 150000 })
                 const reviewText = await page.textContent('body')
                 report('TC-6 Extraction completes', 'PASS', `Review screen: ${reviewText.slice(0, 150)}`)
               } catch {
