@@ -89,12 +89,12 @@ jobs:
               "NODE_ENV=production" \
               "UAT_BYPASS_TOKEN=${{ secrets.UAT_BYPASS_TOKEN }}"
 
-      - name: Clear platform CORS (function code handles CORS)
+      - name: Configure platform CORS
         run: |
-          # Remove ALL platform-level CORS origins so the platform doesn't intercept
-          # OPTIONS preflights before they reach the function code. The function code
-          # returns the correct Access-Control-Allow-* headers for every route.
-          az functionapp cors remove \
+          # Add * to platform CORS so OPTIONS preflights return 204 (not 403).
+          # The function code does NOT return CORS headers on non-OPTIONS responses
+          # to avoid duplicate Access-Control-Allow-Origin that Chrome rejects.
+          az functionapp cors add \
             --name $FUNCTION_APP_NAME \
             --resource-group $RESOURCE_GROUP \
             --allowed-origins "*" 2>/dev/null || true

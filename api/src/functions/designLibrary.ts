@@ -29,8 +29,11 @@ const CORS = {
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-UAT-Token',
 }
-const JSON_H = { 'Content-Type': 'application/json', ...CORS }
-const STREAM_H = { 'Content-Type': 'application/x-ndjson', 'Transfer-Encoding': 'chunked', ...CORS }
+// JSON_H and STREAM_H do NOT include CORS headers — platform CORS adds them once.
+// Adding CORS here AND having platform CORS active produces duplicate
+// Access-Control-Allow-Origin headers which Chrome rejects as "Failed to fetch".
+const JSON_H = { 'Content-Type': 'application/json' }
+const STREAM_H = { 'Content-Type': 'application/x-ndjson', 'Transfer-Encoding': 'chunked' }
 
 // ── Extraction prompt ────────────────────────────────────────────────────────
 // ── Baseline design system (merged with Claude's brand diff) ─────────────────
@@ -1589,6 +1592,8 @@ app.http('figmaWebhook', {
 // Avoids embedding large base64 images in the extract JSON payload (which hits
 // Azure's ~1 MB request body proxy limit and causes 502s).
 async function imageUploadHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  // Platform CORS adds Access-Control-Allow-Origin to non-OPTIONS responses.
+  // This local cors object is only used for the OPTIONS preflight response.
   const cors = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-UAT-Token',
@@ -1600,7 +1605,7 @@ async function imageUploadHandler(req: HttpRequest): Promise<HttpResponseInit> {
     const contentType = req.headers.get('content-type') || ''
     const boundaryMatch = contentType.match(/boundary=([^\s;]+)/)
     if (!boundaryMatch) {
-      return { status: 400, headers: cors, jsonBody: { error: 'Expected multipart/form-data' } }
+      return { status: 400, headers: JSON_H, jsonBody: { error: 'Expected multipart/form-data' } }
     }
     const boundary = boundaryMatch[1]
 
@@ -1632,7 +1637,7 @@ async function imageUploadHandler(req: HttpRequest): Promise<HttpResponseInit> {
 
     const filePart = parts.find(p => p.headers.includes('name="file"'))
     if (!filePart) {
-      return { status: 400, headers: cors, jsonBody: { error: 'No "file" field in multipart body' } }
+      return { status: 400, headers: JSON_H, jsonBody: { error: 'No "file" field in multipart body' } }
     }
 
     // Determine content type from part headers
@@ -1679,11 +1684,11 @@ async function imageUploadHandler(req: HttpRequest): Promise<HttpResponseInit> {
 
     return {
       status: 200,
-      headers: { ...cors, 'Content-Type': 'application/json' },
+      headers: JSON_H,
       body: JSON.stringify({ url, blobName }),
     }
   } catch (err: any) {
-    return { status: 500, headers: cors, jsonBody: { error: err.message } }
+    return { status: 500, headers: JSON_H, jsonBody: { error: err.message } }
   }
 }
 
